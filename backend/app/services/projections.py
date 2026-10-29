@@ -87,15 +87,32 @@ def user_out(doc: dict) -> dict:
 
 
 def member_team_ids(uid: str) -> set[str]:
-    """Team IDs the user belongs to, via the `members` collection group."""
+    """Team IDs the user belongs to.
+
+    A `collection_group("members")` query needs a manually created
+    COLLECTION_GROUP index; without it Firestore returns FAILED_PRECONDITION
+    and every team-only member silently loses visibility of their team's
+    applications. Listing the (few) teams and fetching the membership
+    documents directly needs no index at all.
+    """
     ids: set[str] = set()
     try:
-        for snap in (
-            db().collection_group("members").where("user_id", "==", uid).stream()
-        ):
-            parent = snap.reference.parent.parent
-            if parent is not None:
-                ids.add(parent.id)
+        refs = [
+            db()
+            .collection("teams")
+            .document(team["id"])
+            .collection("members")
+            .document(str(uid))
+            for team in list_docs("teams")
+        ]
+        if not refs:
+            return ids
+        for snap in db().get_all(refs):
+            if not snap.exists:
+                continue
+            team_ref = snap.reference.parent.parent
+            if team_ref is not None:
+                ids.add(team_ref.id)
     except Exception as exc:
         log_event(
             logger,
