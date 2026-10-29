@@ -22,8 +22,8 @@ npm run dev
 - Routers: `api/auth.py` (identity/profile/approval) and `api/resources.py`
   (everything else). There are no other routers.
 - Core: `core/config.py` (settings), `core/firebase.py` (lazy Admin SDK init),
-  `core/security.py` (`current_user`, `active_user`, `require_roles`,
-  `is_admin`, `is_super_admin`, `ensure_permission`).
+  `core/security.py` (`current_user`, `active_user`, `is_admin`,
+  `is_super_admin`, `ensure_permission`).
 - Services: `repository.py` (thin Firestore CRUD/query helpers),
   `projections.py` (REST shapes + visibility), `rbac.py` (role/permission
   catalog and overrides), `blobs.py` (gzip documents in Firestore), `uploads.py`
@@ -139,8 +139,8 @@ npm run dev
 
 - Firestore list helpers cap at 100–500 docs. For large tenants, add query
   filters or pagination rather than loading everything and filtering in Python.
-- `recharts` + `FullCalendar` are the heaviest frontend deps; pages are route-
-  split, so keep them out of the login bundle.
+- `FullCalendar` is the heaviest frontend dep; calendar pages are route-split,
+  so keep it out of the login bundle.
 - The backend Docker image stays small: there is no office suite, and PDF
   import is the pure-Python `pdf2docx` dependency.
 - Document generation and PDF conversion run in-process; the deployment

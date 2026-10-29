@@ -36,7 +36,7 @@
 2. `src/lib/api.ts` registers an async token provider (`setTokenProvider`), so every request asks Firebase for a current token before calling the API. There is no cached token to expire in the client.
 3. `app/core/security.py:current_user` verifies the token (`verify_id_token`), loads `users/{uid}`, and creates the profile on first sight (bootstrap email → `SUPER_ADMIN` + approved; everyone else → `INNOVATOR` + pending).
 4. `active_user` rejects non-approved or disabled accounts (`403`).
-5. Endpoints then use `ensure_permission(user, "<CODE>")` and/or `require_roles(...)` / `is_admin()` / `is_super_admin()`.
+5. Endpoints then use `ensure_permission(user, "<CODE>")` and/or `is_admin()` / `is_super_admin()`.
 6. `app/services/projections.py` decides visibility (`patent_visible`, `visible_patents`, `require_patent`) and serialises documents into the REST shapes the client expects.
 
 ## 3. Roles, permissions, and auth model

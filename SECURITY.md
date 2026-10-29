@@ -55,7 +55,7 @@ Current controls (Firebase runtime):
   refresh endpoint.
 - **Authorization:** roles are read from `users/{uid}.role_codes` on every
   request; client-supplied roles are ignored. Guards are `ensure_permission`,
-  `require_roles`, `is_admin`, and `is_super_admin`
+  `is_admin`, and `is_super_admin`
   (`backend/app/core/security.py`). Visibility helpers restrict reads to
   creators, team members, assignees, and admins
   (`backend/app/services/projections.py`).

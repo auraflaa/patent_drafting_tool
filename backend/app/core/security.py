@@ -114,17 +114,6 @@ def active_user(user: dict = Depends(current_user)) -> dict:
     return user
 
 
-def require_roles(*roles: str):
-    def dependency(user: dict = Depends(active_user)) -> dict:
-        if not set(roles).intersection(user.get("role_codes") or []):
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN, "Insufficient role permissions."
-            )
-        return user
-
-    return dependency
-
-
 def is_admin(user: dict) -> bool:
     return bool({"ADMIN", "SUPER_ADMIN"} & set(user.get("role_codes") or []))
 

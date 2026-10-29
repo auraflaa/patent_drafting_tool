@@ -25,7 +25,7 @@ npm run build                  # tsc -b && vite build
 ## Conventions
 
 - Conventional commits with one type per commit; atomic commits (~100 lines ideal, ~300 max) — see `CONTRIBUTING.md` → Commit discipline, including the 8-commit stack example.
-- Backend guards: `active_user` → `ensure_permission("<CODE>")` / `require_roles(*codes)` / `is_admin()`; visibility via `services/projections.py`. Never trust client-supplied roles.
+- Backend guards: `active_user` → `ensure_permission("<CODE>")` / `is_admin()`; visibility via `services/projections.py`. Never trust client-supplied roles.
 - API responses keep the legacy REST shapes (`invention_title`, `application_status`, Title-Case statuses, `roles`) through `services/projections.py`; Firestore stores lowercase internal state (`account_status`, `role_codes`).
 - Frontend: all HTTP through `lib/api.ts` (`apiFetch`/`apiUpload`/`apiDownload`); auth through `context/AuthContext.tsx` + `lib/firebase.ts`; gating through `ProtectedRoute`; loading/empty UI through `components/LoadingState` / `components/EmptyState` (always centred, `role="status"`).
 - Loading states: full/panel loads use `<LoadingState />`, tight inline slots use `<LoadingState compact />`.

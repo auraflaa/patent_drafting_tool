@@ -142,13 +142,6 @@ def create_doc(collection: str, data: dict, doc_id: str | None = None) -> dict:
     return payload
 
 
-def set_doc(collection: str, doc_id: str, data: dict) -> dict:
-    payload = clean(data)
-    payload["updated_at"] = now_iso()
-    db().collection(collection).document(str(doc_id)).set(payload, merge=True)
-    return get_doc(collection, doc_id)
-
-
 def patch_doc(collection: str, doc_id: str, data: dict) -> dict:
     ref = db().collection(collection).document(str(doc_id))
     if not ref.get().exists:
@@ -166,20 +159,45 @@ def delete_doc(collection: str, doc_id: str) -> None:
     ref.delete()
 
 
+def _sort_key(value: Any) -> tuple[int, float, str]:
+    """Map one field value into a totally ordered bucket.
+
+    Firestore can return unlike types for the same field (an old numeric
+    timestamp next to a new ISO string), so values are ranked by kind first and
+    compared inside their own kind. Ints and floats share a numeric bucket
+    instead of sorting as different type names.
+    """
+    if isinstance(value, bool):
+        return (3, float(value), "")
+    if isinstance(value, (int, float)):
+        return (0, float(value), "")
+    moment: datetime | None = None
+    if isinstance(value, datetime):
+        moment = value
+    elif callable(getattr(value, "timestamp", None)):  # Firestore Timestamp
+        try:
+            return (1, float(value.timestamp()), "")
+        except Exception:
+            return (4, 0.0, repr(value))
+    if moment is not None:
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        return (1, moment.timestamp(), "")
+    if isinstance(value, str):
+        return (2, 0.0, value)
+    return (4, 0.0, repr(value))
+
+
 def sort_docs(
     items: list[dict], field: str, *, reverse: bool = False
 ) -> list[dict]:
-    """Sort in Python so Firestore composite indexes are never required."""
+    """Sort in Python so Firestore composite indexes are never required.
 
-    def key(item: dict):
-        value = item.get(field)
-        if value is None:
-            return (1, "", "")
-        # Firestore can return unlike types for the same field (an old numeric
-        # timestamp next to a new ISO string). Rank by type name so the sort is
-        # total instead of raising TypeError; equal types compare natively.
-        if isinstance(value, (str, int, float, bool, datetime)):
-            return (0, type(value).__name__, value)
-        return (0, type(value).__name__, repr(value))
-
-    return sorted(items, key=key, reverse=reverse)
+    Records without the field always come last, in both directions: reversing a
+    "newest first" list must not push undated rows to the top.
+    """
+    present = [item for item in items if item.get(field) is not None]
+    missing = [item for item in items if item.get(field) is None]
+    return sorted(
+        present, key=lambda item: _sort_key(item.get(field)), reverse=reverse
+    ) + missing

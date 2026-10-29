@@ -253,7 +253,7 @@ More: [`docs/DOCKER.md`](./docs/DOCKER.md).
    `frontend/src/lib/api.ts`; types → `frontend/src/lib/types.ts`; Firebase
    init → `frontend/src/lib/firebase.ts`.
 2. **Match existing patterns.** Backend: `ensure_permission` /
-   `require_roles` / `is_admin` guards, projections before returning documents,
+   `is_admin` guards, projections before returning documents,
    `404` via the repository helpers. Frontend: `ProtectedRoute` guards,
    `apiFetch`/`apiUpload`, `StatusBadge` colours, `DashboardShell` layout,
    `LoadingState`/`EmptyState`.

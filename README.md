@@ -84,7 +84,7 @@ The REST API deliberately keeps the legacy snake_case contract (`invention_title
 | Templates | Admin-managed `.docx` templates per document type, activate/deactivate, unknown-placeholder warnings |
 | Reports & dashboard | Status counts, action-required queue, patent/document/user/calendar reports, CSV export, per-report permission matrix |
 | Auth & RBAC | Firebase ID-token auth, `role_codes` (`INNOVATOR`, `PATENT_AGENT`, `ADMIN`, `SUPER_ADMIN`), pending → approved onboarding, bootstrap super admin, 27-permission matrix |
-| Frontend | Role-based dashboards, patent workflow tabs, draft workspace, calendar (FullCalendar), reports (Recharts), PDF preview (react-pdf) |
+| Frontend | Role-based dashboards, patent workflow tabs, draft workspace, calendar (FullCalendar) |
 | Ops | `/health` Firestore probe, CORS + TrustedHost, Docker images for backend + frontend, Compose for local full-stack |
 
 ---
@@ -151,9 +151,8 @@ Statuses beyond `Draft Generated` (filing, examination, grant) are display/impor
 | Layer | Technology |
 |---|---|
 | UI | React 18.3, React Router 6.28, Tailwind CSS 3.4 |
-| Data / forms | TanStack React Query 5.62, React Hook Form 7.54, Zod 3.24 |
 | Auth | Firebase JS SDK 13.x (Google popup with redirect fallback) |
-| Domain widgets | Recharts 2.15 (reports), FullCalendar 6.1 (calendar), react-pdf 9.2 (preview) |
+| Domain widgets | FullCalendar 6.1 (calendar) |
 | Build | Vite 6.0, TypeScript 5.7 (`strict`, `noUnusedLocals/Parameters`) |
 | Runtime | Node 20 (Docker build stage), nginx 1.27-alpine (serve stage) |
 
@@ -405,7 +404,7 @@ npm run lint
 npm run build
 ```
 
-Conventions: TypeScript `strict` + `noUnusedLocals`; functional React components; route guards via `ProtectedRoute`; backend permission guards via `ensure_permission` / `require_roles` / `is_admin`; never commit `.env` or `secrets/`. See [`AGENTS.md`](./AGENTS.md) for the short operator/agent checklist.
+Conventions: TypeScript `strict` + `noUnusedLocals`; functional React components; route guards via `ProtectedRoute`; backend permission guards via `ensure_permission` / `is_admin`; never commit `.env` or `secrets/`. See [`AGENTS.md`](./AGENTS.md) for the short operator/agent checklist.
 
 ---
 
@@ -534,5 +533,5 @@ SPDX-License-Identifier: Apache-2.0
 
 - Built with FastAPI, React, Vite, Firebase Authentication, and Cloud Firestore.
 - Word pipeline via `python-docx` + `docxtpl`; PDF uploads converted to DOCX with `pdf2docx`.
-- Calendar via FullCalendar, charts via Recharts, PDF preview via react-pdf.
+- Calendar via FullCalendar.
 - Thanks to all contributors — see commit history.

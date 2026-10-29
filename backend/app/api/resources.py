@@ -2524,7 +2524,7 @@ def rbac_toggle(
 @router.get("/rbac/users")
 def rbac_users(user: dict = Depends(active_user)):
     ensure_permission(user, "RBAC_MANAGE")
-    users = sort_docs(list_docs("users"), "created_at")
+    users = sort_docs(list_docs("users"), "created_at", reverse=True)
     return [
         {
             "id": doc["id"],

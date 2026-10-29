@@ -1,5 +1,4 @@
 """Tests for the Firestore repository helpers (sorting, querying)."""
-import pytest
 
 from app.services.repository import sort_docs
 
@@ -73,3 +72,37 @@ def test_sort_docs_missing_field():
     result = sort_docs(items, "field")
     assert result[0]["id"] == "b"
     assert result[1]["id"] == "a"
+
+
+def test_sort_docs_reverse_keeps_missing_values_last():
+    """Newest-first lists must not surface undated rows at the top."""
+    items = [
+        {"id": "a", "created_at": "2024-01-01T00:00:00Z"},
+        {"id": "b", "created_at": None},
+        {"id": "c", "created_at": "2025-01-01T00:00:00Z"},
+        {"id": "d"},
+    ]
+    result = sort_docs(items, "created_at", reverse=True)
+    assert [d["id"] for d in result][:2] == ["c", "a"]
+    assert {d["id"] for d in result[2:]} == {"b", "d"}
+
+
+def test_sort_docs_orders_ints_and_floats_together():
+    items = [
+        {"id": "a", "n": 10},
+        {"id": "b", "n": 2.5},
+        {"id": "c", "n": 3},
+    ]
+    result = sort_docs(items, "n")
+    assert [d["id"] for d in result] == ["b", "c", "a"]
+
+
+def test_sort_docs_orders_datetimes_without_raising_on_naive_values():
+    from datetime import datetime, timezone
+
+    items = [
+        {"id": "a", "at": datetime(2024, 1, 1, tzinfo=timezone.utc)},
+        {"id": "b", "at": datetime(2025, 1, 1)},
+    ]
+    result = sort_docs(items, "at")
+    assert [d["id"] for d in result] == ["a", "b"]

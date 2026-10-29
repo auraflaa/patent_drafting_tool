@@ -24,7 +24,6 @@ ROLES = (
     (3, "Patent Agent", PATENT_AGENT, True),
     (4, "Innovator", INNOVATOR, True),
 )
-ROLE_BY_CODE = {row[2]: row for row in ROLES}
 ROLE_BY_ID = {row[0]: row for row in ROLES}
 
 # (id, permission_name, permission_code, module_name, action)

@@ -88,7 +88,7 @@
 ## Security considerations
 
 - [ ] No secrets, tokens, or service-account JSON added
-- [ ] Auth guards preserved (`ensure_permission` / `require_roles` / `is_admin` backend, `ProtectedRoute` frontend)
+- [ ] Auth guards preserved (`ensure_permission` / `is_admin` backend, `ProtectedRoute` frontend)
 - [ ] Upload validation unchanged or tightened (size, extensions)
 - [ ] No new `*` CORS origins or widened hosts
 - [ ] N/A — docs/CI-only change
