@@ -208,7 +208,8 @@ patent_drafting_tool/
 │   │                          # drafting, documents
 │   ├── tests/                 # Offline pytest suite
 │   ├── Dockerfile
-│   ├── requirements.txt
+│   ├── requirements.txt       # runtime deps (production image)
+│   ├── requirements-dev.txt   # runtime deps + pytest for local/CI
 │   ├── pytest.ini
 │   ├── .env.example
 │   └── README.md              # Firebase setup guide
@@ -265,7 +266,7 @@ cd backend
 py -3.13 -m venv venv
 .\venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 Copy-Item .env.example .env
 # Edit .env — at minimum FIREBASE_PROJECT_ID, FIRESTORE_DATABASE_ID, BOOTSTRAP_ADMIN_EMAIL
 python -m uvicorn app.main:app --reload --port 8000
@@ -395,7 +396,7 @@ See [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) and [`CONTRIBUTING.md`](./CON
 ```powershell
 # Backend checks (from backend/)
 python -m compileall app
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 python -m pytest -q
 
 # Frontend checks (from frontend/)

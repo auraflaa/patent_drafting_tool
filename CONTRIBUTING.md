@@ -155,7 +155,7 @@ cd backend
 py -3.13 -m venv venv
 .\venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 Copy-Item .env.example .env
 # Edit .env: FIREBASE_PROJECT_ID, FIRESTORE_DATABASE_ID, BOOTSTRAP_ADMIN_EMAIL
 python -m uvicorn app.main:app --reload --port 8000
@@ -271,7 +271,7 @@ Run these locally — CI runs the same across Linux, Windows, and macOS:
 ```powershell
 # Backend (from backend/)
 python -m compileall app
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 python -m pytest -q
 
 # Frontend (from frontend/)

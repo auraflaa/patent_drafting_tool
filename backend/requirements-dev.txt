@@ -1,0 +1,7 @@
+# Development and CI dependencies. The production image installs only
+# requirements.txt, so the test runner never ships to a deployment.
+-r requirements.txt
+
+# pytest 9 carries the fix for PYSEC-2026-1845; the offline suite needs no
+# plugins beyond what it already imports.
+pytest>=9.0.3,<10.0
