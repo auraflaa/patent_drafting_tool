@@ -52,7 +52,9 @@ def query_docs(
     """Run equality/array-contains filters and return plain dicts with IDs."""
     query = db().collection(collection)
     for field, op, value in filters or ():
-        query = query.where(field, op, value)
+        # Keyword form: the positional overload of where() is deprecated and
+        # emits a UserWarning on every query with newer SDKs.
+        query = query.where(filter=firestore.FieldFilter(field, op, value))
     out: list[dict] = []
     for snap in query.limit(max(1, min(limit, MAX_QUERY_LIMIT))).stream():
         item = snap.to_dict() or {}

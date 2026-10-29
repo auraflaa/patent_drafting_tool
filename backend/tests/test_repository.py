@@ -106,3 +106,39 @@ def test_sort_docs_orders_datetimes_without_raising_on_naive_values():
     ]
     result = sort_docs(items, "at")
     assert [d["id"] for d in result] == ["a", "b"]
+
+
+def test_query_docs_uses_keyword_field_filters(monkeypatch):
+    """The positional where() overload is deprecated and warns on every call."""
+    from google.cloud.firestore_v1.base_query import FieldFilter
+
+    from app.services import repository
+
+    calls: list[tuple[tuple, dict]] = []
+
+    class FakeQuery:
+        def where(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return self
+
+        def limit(self, _count):
+            return self
+
+        def stream(self):
+            return []
+
+    class FakeDb:
+        def collection(self, _name):
+            return FakeQuery()
+
+    monkeypatch.setattr(repository, "db", FakeDb)
+
+    repository.query_docs(
+        "patents",
+        filters=[("created_by", "==", "u1"), ("tags", "array_contains", "x")],
+    )
+
+    assert len(calls) == 2
+    for args, kwargs in calls:
+        assert args == ()
+        assert isinstance(kwargs["filter"], FieldFilter)
