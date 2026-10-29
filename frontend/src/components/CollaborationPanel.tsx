@@ -163,8 +163,11 @@ function CommentsSection({ patentId }: { patentId: string }) {
 // ---------------------------------------------------------------------------
 
 function FilesSection({ patentId }: { patentId: string }) {
-  const { user, hasRole } = useAuth();
+  const { user, hasRole, hasPermission } = useAuth();
   const isAdmin = hasRole("ADMIN") || hasRole("SUPER_ADMIN");
+  // Mirrors the backend rule: uploaders may remove their own file, while the
+  // catalogued FILES_DELETE grant is what allows deleting someone else's.
+  const canDeleteAny = isAdmin || hasPermission("FILES_DELETE");
   const [files, setFiles] = useState<FileOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -258,7 +261,7 @@ function FilesSection({ patentId }: { patentId: string }) {
               >
                 Download
               </button>
-              {(isAdmin || f.uploaded_by === user?.id) && (
+              {(canDeleteAny || f.uploaded_by === user?.id) && (
                 <button
                   onClick={() => remove(f)}
                   disabled={busy}

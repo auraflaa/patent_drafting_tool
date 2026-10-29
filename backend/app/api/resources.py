@@ -1538,10 +1538,12 @@ def download_file(patent_id: str, file_id: str, user: dict = Depends(active_user
 
 @router.delete("/patents/{patent_id}/files/{file_id}")
 def delete_file(patent_id: str, file_id: str, user: dict = Depends(active_user)):
-    patent = require_patent(patent_id, user)
+    require_patent(patent_id, user)
     record = get_doc("files", file_id)
     if record.get("patent_application_id") != patent_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found.")
+    # Uploaders can always remove their own file; the catalogued FILES_DELETE
+    # grant (Patent Agent) is what allows deleting someone else's upload.
     if not (
         is_admin(user)
         or record.get("uploaded_by") == user["uid"]
@@ -1550,8 +1552,11 @@ def delete_file(patent_id: str, file_id: str, user: dict = Depends(active_user))
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "You cannot delete this file."
         )
-    blobs.delete_blob(record.get("blob_id"))
+    # Metadata first: a failure there leaves a retryable, consistent record,
+    # while deleting the blob first would leave a row pointing at missing bytes.
     delete_doc("files", file_id)
+    blobs.delete_blob(record.get("blob_id"))
+    log_activity(user["uid"], "FileDeleted", "PatentFile", file_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1566,6 +1571,7 @@ def _can_manage_calendar(patent: dict, user: dict) -> bool:
 
 @router.get("/patents/{patent_id}/calendar-events")
 def list_patent_events(patent_id: str, user: dict = Depends(active_user)):
+    ensure_permission(user, "CALENDAR_VIEW")
     require_patent(patent_id, user)
     events = query_docs(
         "calendar_events", filters=[("patent_application_id", "==", patent_id)]
@@ -2145,12 +2151,27 @@ def upload_template(
 def activate_template(template_id: str, user: dict = Depends(active_user)):
     ensure_permission(user, "TEMPLATES_MANAGE")
     template = get_doc("templates", template_id)
+    if template.get("template_parse_error"):
+        # Activating it would replace a working template with one that cannot
+        # be rendered, and generation would start failing for every document.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "This template failed to parse and cannot be activated. "
+            "Upload a corrected version instead.",
+        )
+    if not template.get("file_path"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "This template has no stored file."
+        )
     for doc in list_docs("templates"):
-        if doc.get("document_type") == template.get("document_type") and doc.get(
-            "is_active"
+        if (
+            doc["id"] != template_id
+            and doc.get("document_type") == template.get("document_type")
+            and doc.get("is_active")
         ):
             patch_doc("templates", doc["id"], {"is_active": False})
     updated = patch_doc("templates", template_id, {"is_active": True})
+    log_activity(user["uid"], "TemplateActivated", "Template", template_id)
     return template_out(updated, user)
 
 
@@ -2158,8 +2179,17 @@ def activate_template(template_id: str, user: dict = Depends(active_user)):
 def delete_template(template_id: str, user: dict = Depends(active_user)):
     ensure_permission(user, "TEMPLATES_MANAGE")
     template = get_doc("templates", template_id)
+    if template.get("is_active"):
+        # Deleting it would silently drop generation back to the built-in
+        # layout for every future document of this type.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Activate another version of this document type before deleting "
+            "the active template.",
+        )
     blobs.delete_blob(template.get("file_path"))
     delete_doc("templates", template_id)
+    log_activity(user["uid"], "TemplateDeleted", "Template", template_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

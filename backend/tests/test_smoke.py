@@ -1279,6 +1279,103 @@ def test_truncated_ai_completion_is_rejected(monkeypatch: pytest.MonkeyPatch) ->
     assert "truncat" in str(exc.value).lower()
 
 
+def test_activate_template_refuses_a_template_that_failed_to_parse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Activating a broken template would break generation for every document."""
+    from app.api import resources
+
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(
+        resources,
+        "get_doc",
+        lambda *args: {"id": "t1", "template_parse_error": "bad zip"},
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        resources.activate_template("t1", {"uid": "admin"})
+
+    assert exc.value.status_code == 400
+    assert "parse" in exc.value.detail.lower()
+
+
+def test_delete_template_refuses_the_active_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import resources
+
+    deleted: list[str] = []
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(
+        resources, "get_doc", lambda *args: {"id": "t1", "is_active": True}
+    )
+    monkeypatch.setattr(resources, "delete_doc", lambda *args: deleted.append(args[1]))
+
+    with pytest.raises(HTTPException) as exc:
+        resources.delete_template("t1", {"uid": "admin"})
+
+    assert exc.value.status_code == 400
+    assert deleted == []
+
+
+def test_delete_file_removes_the_record_before_the_blob(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed blob delete must not leave a row pointing at missing bytes."""
+    from app.api import resources
+
+    order: list[tuple] = []
+    monkeypatch.setattr(resources, "require_patent", lambda *args: {"id": "p1"})
+    monkeypatch.setattr(resources, "is_admin", lambda user: False)
+    monkeypatch.setattr(resources, "has_permission", lambda user, code: False)
+    monkeypatch.setattr(
+        resources,
+        "get_doc",
+        lambda *args: {
+            "id": "f1",
+            "blob_id": "b1",
+            "patent_application_id": "p1",
+            "uploaded_by": "u1",
+        },
+    )
+    monkeypatch.setattr(
+        resources, "delete_doc", lambda *args: order.append(("doc", args[1]))
+    )
+    monkeypatch.setattr(
+        resources.blobs, "delete_blob", lambda blob_id: order.append(("blob", blob_id))
+    )
+    monkeypatch.setattr(
+        resources,
+        "log_activity",
+        lambda *args: order.append(("audit", args[1])),
+    )
+
+    resources.delete_file("p1", "f1", {"uid": "u1"})
+
+    assert order == [("doc", "f1"), ("blob", "b1"), ("audit", "FileDeleted")]
+
+
+def test_patent_calendar_requires_the_view_permission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import resources
+
+    checked: list[str] = []
+    monkeypatch.setattr(resources, "require_patent", lambda *args: {"id": "p1"})
+
+    def deny(user, code):
+        checked.append(code)
+        raise HTTPException(403, "denied")
+
+    monkeypatch.setattr(resources, "ensure_permission", deny)
+
+    with pytest.raises(HTTPException) as exc:
+        resources.list_patent_events("p1", {"uid": "u1"})
+
+    assert exc.value.status_code == 403
+    assert checked == ["CALENDAR_VIEW"]
+
+
 def test_production_warns_when_allowed_hosts_is_wildcard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
