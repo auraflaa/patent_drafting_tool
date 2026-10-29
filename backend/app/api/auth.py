@@ -69,7 +69,7 @@ def _profile_patch(payload: dict) -> dict:
                 f"{key} must not contain control characters.",
             )
         if key == "profile_picture" and text and not text.startswith(
-            ("https://", "http://")
+            "https://"
         ):
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
