@@ -390,6 +390,9 @@ export interface FileOut {
   uploaded_by: string | null;
   uploaded_by_name: string | null;
   original_file_name: string | null;
+  /** Set when a PDF was converted to Word on upload. */
+  source_file_name: string | null;
+  converted_from_pdf: boolean;
   mime_type: string | null;
   file_size_bytes: number | null;
   created_at: string;

@@ -136,7 +136,6 @@ export interface RuntimeCapabilities {
   deployment_target: "self_hosted" | "vercel";
   max_upload_size_bytes: number;
   max_request_body_bytes: number;
-  pdf_generation_enabled: boolean;
 }
 
 let capabilitiesRequest: Promise<RuntimeCapabilities> | null = null;
