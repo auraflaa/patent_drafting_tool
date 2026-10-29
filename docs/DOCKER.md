@@ -7,17 +7,19 @@
 | Backend | `backend/Dockerfile` | `python:3.13-slim` (builder + runtime) | FastAPI via Gunicorn + Uvicorn workers |
 | Frontend | `frontend/Dockerfile` | `node:20-slim` → `nginx:1.27-alpine` | Vite build → static serve with SPA fallback |
 
-Firebase (Auth, Firestore, Storage) is external to both images. There is no
-database container and no migration step (ADR-005).
+Firebase (Auth and Firestore, which also stores the documents) is external to
+both images. There is no database container, no bucket, and no migration step
+(ADR-005, ADR-006).
 
 ## 2. Backend image details
 
 Stages:
 
 1. **builder**: creates `/opt/venv`, `pip install -r requirements.txt`.
-2. **runtime**: installs `libreoffice` + `ca-certificates` (required for
-   DOCX→PDF via headless LibreOffice — the main size cost), creates non-root
-   `appuser` (uid 1000), copies the venv + source, `USER appuser`.
+2. **runtime**: installs `ca-certificates` only — no office suite, because
+   documents are Word-only and PDF uploads are converted by `pdf2docx`.
+   Creates non-root `appuser` (uid 1000), copies the venv + source,
+   `USER appuser`.
 
 ```dockerfile
 # No entrypoint: Firestore needs no migrations and there is no boot-time
@@ -33,8 +35,9 @@ CMD ["gunicorn", "app.main:app",
 - `EXPOSE 8000`; `HEALTHCHECK` hits `http://localhost:8000/health` (30 s
   interval, 15 s start period). The container stays **unhealthy** until
   Firebase credentials resolve, because `/health` returns `503` until then.
-- Worker count is two on purpose: each worker can spawn a LibreOffice
-  subprocess, and the deployment assumes one backend replica (ADR-003).
+- Worker count is two on purpose: a PDF conversion or a large blob write
+  occupies a worker for its duration, and the deployment assumes one backend
+  replica (ADR-003).
 - Env comes from `--env-file` or orchestrator variables (see
   `backend/.env.example`). The service-account JSON is mounted, not copied
   into the image.
@@ -54,7 +57,7 @@ Verify: `GET http://localhost:8000/health` → `200` once Firebase is reachable.
 Stages:
 
 1. **build** (`node:20-slim`): `npm ci`, copy source, bake `VITE_API_URL` and
-   the six `VITE_FIREBASE_*` values as build args, `npm run build` → `dist/`.
+   the five `VITE_FIREBASE_*` values as build args, `npm run build` → `dist/`.
 2. **serve** (`nginx:1.27-alpine`): copy `dist/` →
    `/usr/share/nginx/html`, copy `nginx.conf` →
    `/etc/nginx/conf.d/default.conf`.
@@ -72,7 +75,6 @@ docker build `
   --build-arg VITE_FIREBASE_API_KEY=... `
   --build-arg VITE_FIREBASE_AUTH_DOMAIN=my-project.firebaseapp.com `
   --build-arg VITE_FIREBASE_PROJECT_ID=my-project `
-  --build-arg VITE_FIREBASE_STORAGE_BUCKET=my-project.firebasestorage.app `
   --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID=... `
   --build-arg VITE_FIREBASE_APP_ID=... `
   -t patent-frontend ./frontend

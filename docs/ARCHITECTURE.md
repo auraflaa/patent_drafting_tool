@@ -20,15 +20,15 @@
                        |            +---------+----------+
                        +------------| Firebase Admin SDK|
                                     +----+---------+----+
-                                         |         |
-                                 Cloud Firestore  Cloud Storage
-                                 (all app data)   (files, templates,
-                                                   generated documents)
+                                         |
+                                 Cloud Firestore
+                                 (all app data, including
+                                  gzip-compressed documents)
 ```
 
 - **Frontend** (`frontend/`): React 18 SPA, React Router role-guarded routes, React Query, Hook Form + Zod. Firebase JS SDK performs Google sign-in; `VITE_*` values are baked at build time, so there is no runtime env.
 - **Backend** (`backend/app/main.py`): FastAPI with a `lifespan` that attempts `initialize_firebase()` but never blocks boot. `/health` probes Firestore. Mounts exactly two routers: `auth` (`/api/auth`) and `resources` (`/api`). CORS + TrustedHost middleware; a generic 500 handler that stays terse in production.
-- **Firebase**: Authentication is the identity provider; Firestore is the system of record; Storage holds blobs. The browser uses Firebase Auth only — all data access goes through the API, whose Admin SDK runs privileged. The checked-in `firestore.rules` and `storage.rules` therefore deny every direct client read and write; Security Rules do **not** replace backend authorization. The Realtime Database is not used.
+- **Firebase**: Authentication is the identity provider; Firestore is the system of record and also stores the document bytes (ADR-006). The browser uses Firebase Auth only — all data access goes through the API, whose Admin SDK runs privileged. The checked-in `firestore.rules` therefore deny every direct client read and write; Security Rules do **not** replace backend authorization. The Realtime Database and Cloud Storage are not used.
 
 ## 2. Request lifecycle
 
@@ -69,17 +69,18 @@ No joins, no migrations — documents are linked by string IDs and filtered in t
 | `questionnaires` | `patent_application_id`, status, answers | `patent_application_id` |
 | `questionnaire_versions` | snapshot + `version_number` | `patent_application_id` |
 | `drafts` | `patent_application_id`, `section_type`, `version_number`, `ai_response` | `patent_application_id` |
-| `documents` | `patent_application_id`, `output_format`, `stored_path` | `patent_application_id` |
-| `document_versions` | `document_id`, `version_number`, `storage_path` | `document_id` |
+| `documents` | `patent_application_id`, `output_format`, `stored_path` (blob id) | `patent_application_id` |
+| `document_versions` | `document_id`, `version_number`, `storage_path` (blob id) | `document_id` |
 | `document_jobs` | `patent_application_id`, `status`, `error_message` | `patent_application_id` |
-| `files` | `patent_application_id`, `stored_path`, `uploaded_by` | `patent_application_id` |
+| `files` | `patent_application_id`, `blob_id`, `uploaded_by`, `converted_from_pdf` | `patent_application_id` |
 | `comments` | `patent_application_id`, `user_id`, `comment_text` | `patent_application_id` |
 | `calendar_events` | `patent_application_id`, `event_type`, `event_date` | patent and/or creator |
 | `notifications` | `recipient_uid`, `notification_type`, `is_read` | recipient |
-| `templates` | `document_type`, `is_active`, `stored_path` | one active per type |
+| `templates` | `document_type`, `is_active`, `file_path` (blob id) | one active per type |
 | `activity` | `user_id`, `event_type`, `entity_type/id` | dashboard feed |
 | `rbac_overrides` | `granted` per `role_id:permission_id` | RBAC matrix |
 | `report_permission_overrides` | `granted` per `role_id:report_type` | report matrix |
+| `blobs` | `data` (gzip), `encoding`, `content_type`, `size_bytes`, `stored_bytes`, `sha256` | referenced by `blob_id` / `stored_path` / `storage_path` / `file_path` |
 
 Probe collection `_health` is used only by `/health`.
 
@@ -115,16 +116,16 @@ Guards in `app/api/resources.py` and `app/services/projections.py`:
 
 All drafting logic lives in `app/services/drafting.py`:
 
-- `AI_PROVIDER=stub` (default) builds a deterministic placeholder from the questionnaire and appends `DRAFT_WARNING`.
-- `AI_PROVIDER=gemini` plus `GEMINI_API_KEY` calls the Gemini REST API (`GEMINI_MODEL`, default `gemini-2.0-flash`) through `httpx`; the warning is re-appended if the model omits it. Any provider failure becomes a `502`.
+- When `AI_API_URL` and `AI_API_KEY` are both set, the backend calls that OpenAI-compatible endpoint (`AI_MODEL`, e.g. Groq/Qwen, Gemini, or a local model) through `httpx`; the warning is re-appended if the model omits it. Any provider failure becomes a `502`.
+- When either is unset, a deterministic stub builds a placeholder from the questionnaire and appends `DRAFT_WARNING` — no network calls, so the whole workflow (versions, documents UI, agent walkthroughs) is exercisable without keys.
 - `POST /api/patents/{id}/draft/generate` accepts `section_types` (default: all five) and stores one `drafts` document per section with an incremented `version_number`, plus `ai_provider`, `ai_model`, and usage fields.
 
 ## 7. Documents and files
 
-- **Documents**: `POST .../documents/generate` runs a generation job synchronously. `app/services/documents.py` renders DOCX with `docxtpl` when an active template exists for the document type, otherwise with the built-in `python-docx` layout. PDF conversion shells out to headless LibreOffice (installed in the Docker image; absent locally → job fails with a clear error). The blob is uploaded to Storage, `documents` / `document_versions` / `document_jobs` rows are written, and the patent moves to `Draft Generated`.
-- **Downloads**: files and documents are streamed through the API with `Content-Disposition: attachment`; there are no signed URLs to expire.
-- **Files**: `POST .../files` (multipart) validates non-empty content, size cap, and blocked extensions, then stores `patents/{pid}/files/{uuid}{ext}` + a `files` doc. Delete removes blob + doc (uploader, `FILES_DELETE`, or admin).
-- **Templates**: `POST /api/templates` (admin, multipart `.docx`) stores `templates/{type}/v{n}.docx`, reports unknown/unused Jinja placeholders in the upload response, and deactivates siblings of the same `document_type` when activated.
+- **Documents**: `POST .../documents/generate` runs a generation job synchronously. `app/services/documents.py` renders DOCX with `docxtpl` when an active template exists for the document type, otherwise with the built-in `python-docx` layout. Word is the only output format: the DOCX is gzip-compressed by `app/services/blobs.py` into a `blobs` document (capped at 900 KB compressed, ADR-006), `documents` / `document_versions` / `document_jobs` rows are written, and the patent moves to `Draft Generated`.
+- **Downloads**: files and documents are streamed through the API with `Content-Disposition: attachment`; there are no signed URLs to expire. The API decompresses the blob, verifies its SHA-256, and streams it from memory.
+- **Files**: `POST .../files` (multipart) validates non-empty content, size cap, and the extension allowlist. A PDF is converted to DOCX in-process with `pdf2docx` first; the result is compressed into a blob and a `files` row records `blob_id`, the converted name, `source_file_name`, and `converted_from_pdf`. Delete removes blob + row (uploader, `FILES_DELETE`, or admin).
+- **Templates**: `POST /api/templates` (admin, multipart `.docx`) stores the template as a blob referenced by `templates.file_path`, reports unknown/unused Jinja placeholders in the upload response, and deactivates siblings of the same `document_type` when activated.
 
 ## 8. Frontend architecture
 
@@ -138,8 +139,11 @@ All drafting logic lives in `app/services/drafting.py`:
 
 - **Config**: `app/core/config.py` (`pydantic-settings`, `.env`, `extra='ignore'`) — Firebase, app, upload, and AI settings only.
 - **Observability**: generic 500 handler, request logging via uvicorn/gunicorn access logs, `/health` Firebase probe. There is no structured logging/metrics pipeline yet.
-- **Scaling**: single-instance assumption — document generation runs in-process and spawns LibreOffice. See ADR-003.
-- **Verification**: `backend/tests/` is an offline suite (no Firebase credentials). Live Auth/Firestore/Storage behaviour is covered by the manual checklist in `backend/README.md` §7.
+- **Scaling**: single-instance assumption — document generation and PDF conversion run in-process. See ADR-003.
+- **Verification**: `backend/tests/` is an offline suite (no Firebase credentials). Live Auth/Firestore behaviour is covered by the manual checklist in `backend/README.md` §7.
+- **Rate limiting**: `app/core/ratelimit.py` implements a sliding-window limiter on `/api/auth/*` routes (`AUTH_RATE_LIMIT_PER_MINUTE`, default `60`). `/api/auth/me` and `/api/auth/logout` are exempt. Set `FORWARDED_ALLOW_IPS` to your proxy so each user gets their own bucket; otherwise every user shares the proxy IP. The limit is per gunicorn worker; with multiple workers the effective limit is doubled—rate-limit at the platform edge (WAF, Cloud Run concurrency) for production multi-replica deployments.
+- **Session persistence**: `AuthContext` persists profile, permissions, and status to `localStorage` under `patent-platform:profile:v2`. On reload the cached state renders immediately while Firebase restores the session in the background; on logout or 401 the cache is cleared.
+- **Error boundary**: `ErrorBoundary` wraps `<App>` in `main.tsx`. Render errors produce a friendly UI instead of a blank page; all frontend errors are logged via `lib/api.ts#logError` and user-facing messages are generic (e.g. "Your session has expired. Please sign in again.").
 
 ## 10. Decision records
 
@@ -148,5 +152,6 @@ The reasoning behind the significant choices above is recorded in [`decisions/`]
 - [ADR-001](./decisions/ADR-001-firebase-active-runtime.md) — Firebase-native backend as the active runtime (superseded)
 - [ADR-002](./decisions/ADR-002-role-codes-array.md) — Roles as a `role_codes` array on the user document
 - [ADR-003](./decisions/ADR-003-single-instance.md) — Single backend instance
-- [ADR-004](./decisions/ADR-004-stub-first-ai.md) — Stub-first AI drafting with optional Gemini
+- [ADR-004](./decisions/ADR-004-stub-first-ai.md) — Stub-first AI drafting with optional OpenAI-compatible provider
 - [ADR-005](./decisions/ADR-005-firestore-only-runtime.md) — Firestore-only runtime; legacy SQL stack removed
+- [ADR-006](./decisions/ADR-006-firestore-document-storage.md) — Word-only documents stored as compressed Firestore blobs

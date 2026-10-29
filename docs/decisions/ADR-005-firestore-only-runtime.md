@@ -38,9 +38,10 @@ credentials.
    (`database`, `oauth`, `startup_checks`, `rate_limit`, `middleware`,
    `logging_config`), the old `tests/`, `seed.py`, `pytest.ini`, and
    `docker-entrypoint.sh` are removed. Nothing is "reference only" any more.
-2. **Firebase is the only backend**: Firebase Authentication for identity,
-   Cloud Firestore for application data, Cloud Storage for blobs. There is no
-   database container, no migration step, and no `DATABASE_URL`.
+2. **Firebase is the only backend**: Firebase Authentication for identity and
+   Cloud Firestore for application data, including uploaded and generated
+   documents (see [ADR-006](./ADR-006-firestore-document-storage.md)). There
+   is no database container, no migration step, and no `DATABASE_URL`.
 3. **Preserve the REST contract in the service layer.** Firestore documents
    store lowercase internal state (`account_status`, `role_codes`,
    `application_status`), while `app/services/projections.py` serialises the
@@ -95,18 +96,20 @@ credentials.
   JWT, no refresh endpoint, no dev login. The CI `docs-health` job fails the
   build if any of those names reappear in shipped code.
 - **Deployment**: one backend container + one static/nginx frontend. Firebase
-  project configuration (service account, project ID, storage bucket) is the
-  only external dependency.
+  project configuration (service account, project ID, Firestore database) is
+  the only external dependency; no bucket or object store is provisioned.
 - **Auth lifecycle**: Firebase refreshes ID tokens itself. The product's
   30-minute inactivity rule is enforced client-side in `AuthContext`; the API
   remains stateless.
-- **Documents**: DOCX is rendered with `docxtpl` (template) or a built-in
-  `python-docx` layout (fallback); PDF conversion shells out to headless
-  LibreOffice in the image. Generated text keeps the draft-only warning.
+- **Documents**: Word only. DOCX is rendered with `docxtpl` (template) or a
+  built-in `python-docx` layout (fallback), gzip-compressed, and stored in
+  Firestore; uploaded PDFs are converted to DOCX on the way in. Generated
+  text keeps the draft-only warning. See
+  [ADR-006](./ADR-006-firestore-document-storage.md).
 - **Data model**: Firestore has no joins. Relations are string references and
   list endpoints filter in the service layer, which is acceptable at the
   project's tenant sizes (see `docs/ARCHITECTURE.md` §4).
 - **Verification limit**: the offline suite proves contract and service
-  behaviour, not live Firebase IAM/Storage rules. Manual role walkthroughs
-  against a real project remain the release check
+  behaviour, not live Firebase IAM or Firestore rules. Manual role
+  walkthroughs against a real project remain the release check
   (`backend/README.md` §7).

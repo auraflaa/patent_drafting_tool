@@ -4,7 +4,7 @@ Guidance for AI coding agents working with or on patent_drafting_tool.
 
 ## Stack at a glance
 
-- Backend: FastAPI + Firebase Admin (Auth, Firestore, Storage), Python 3.11+ (Docker: 3.13). Routers are `app/api/auth.py` + `app/api/resources.py` only. Firestore is the only system of record (ADR-005).
+- Backend: FastAPI + Firebase Admin (Auth, Firestore; documents are gzip blobs in Firestore), Python 3.11+ (Docker: 3.13). Routers are `app/api/auth.py` + `app/api/resources.py` only. Firestore is the only system of record (ADR-005/ADR-006).
 - Frontend: React 18 + Vite 6 + TypeScript `strict` + Tailwind 3 + Firebase JS SDK, Node 20.
 - Decisions live in `docs/decisions/` (ADRs) — read the relevant one before changing auth, data, deployment, or AI code.
 
@@ -38,5 +38,5 @@ npm run build                  # tsc -b && vite build
 - Never commit `.env`, `secrets/*.json`, `dist/`, `venv/`, `node_modules/`, or model binaries.
 - Never widen CORS/hosts, weaken upload validation, or bypass permission checks for convenience.
 - `ref-repos/` holds ignored reference clones for inspiration — never import from it, never commit it.
-- Single backend instance assumption (ADR-003): document generation runs in-process and spawns LibreOffice; no multi-replica changes without a job queue.
+- Single backend instance assumption (ADR-003): document generation and PDF conversion run in-process; no multi-replica changes without a job queue.
 - Generated patent text is draft-only, never legal advice — keep the warning on every stub/AI surface.

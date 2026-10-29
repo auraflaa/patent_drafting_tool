@@ -1,14 +1,14 @@
 # Deployment Guide
 
 Production deployment for **patent_drafting_tool** on the Firebase-only runtime
-(ADR-005). The shape is:
+(ADR-005), with documents stored in Firestore (ADR-006). The shape is:
 
 ```text
-Firebase Authentication + Cloud Firestore + Cloud Storage   (managed, external)
-                     ^                        ^
-                     |                        |
-        one backend container        one static/nginx frontend
-        (FastAPI + Admin SDK)        (Vite bundle, nginx SPA fallback)
+    Firebase Authentication + Cloud Firestore   (managed, external)
+              ^                    ^
+              |                    |
+    one backend container        one static/nginx frontend
+    (FastAPI + Admin SDK)        (Vite bundle, nginx SPA fallback)
 ```
 
 There is no database container, no migration step, and no object-storage
@@ -30,21 +30,20 @@ sections for your platform's equivalent.
    to your users. The location cannot be changed later.
 3. **Build → Authentication → Sign-in method** → enable **Google**. Add the
    production frontend domain under **Authorized domains**.
-4. **Build → Storage** → enable a bucket if uploads, templates, or generated
-   documents are needed. Note the bucket name.
-5. **Project settings → Your apps → Web app** → register the production web
-   app. Copy the six `VITE_FIREBASE_*` values for the frontend build.
-6. From the repository root, install the Firebase CLI
+4. **Project settings → Your apps → Web app** → register the production web
+   app. Copy the `VITE_FIREBASE_*` values for the frontend build.
+5. From the repository root, install the Firebase CLI
    (`npm i -g firebase-tools`), run `firebase login` and `firebase use --add`,
    then deploy the checked-in rules with
-   `firebase deploy --only firestore:rules,storage`. They deny all direct
-   browser access because only the backend Admin SDK reads and writes
-   Firestore and Storage. Do not enable the Realtime Database.
-7. **Project settings → Service accounts → Generate new private key** → store
+   `firebase deploy --only firestore:rules`. They deny all direct browser
+   access because only the backend Admin SDK reads and writes Firestore. Do
+   not enable the Realtime Database, and do not create a Storage bucket —
+   documents live in Firestore.
+6. **Project settings → Service accounts → Generate new private key** → store
    the JSON in your platform's secret manager. Never commit it.
 
-Use separate Firebase projects for staging and production. Auth users,
-Firestore data, and Storage buckets are per project.
+Use separate Firebase projects for staging and production. Auth users and
+Firestore data are per project.
 
 ## 2. Configure the backend
 
@@ -57,17 +56,19 @@ production (`pydantic-settings`; see `backend/app/core/config.py`). Set:
 | `FIREBASE_PROJECT_ID` | The production project ID |
 | `FIREBASE_SERVICE_ACCOUNT_PATH` | Path to the mounted service-account JSON (for example `/run/secrets/firebase-service-account.json`) |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | _(optional)_ Inline JSON for hosts that cannot mount a file; takes precedence over the path |
-| `FIREBASE_STORAGE_BUCKET` | The production bucket |
+| `FIRESTORE_DATABASE_ID` | Empty for the `(default)` database, otherwise the named database |
 | `FIREBASE_EMULATOR_HOST` | Empty (never set in production) |
 | `BOOTSTRAP_ADMIN_EMAIL` | An address you control, for the first login |
 | `CORS_ORIGINS` | The exact frontend origin, e.g. `https://app.example.com` |
 | `ALLOWED_HOSTS` | The exact backend host, e.g. `api.example.com` |
+| `FORWARDED_ALLOW_IPS` | The proxy that sets `X-Forwarded-For` (`*` on Cloud Run); see the rate-limit note |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | `60`, or `0` to disable the limiter |
 | `DEPLOYMENT_TARGET` | `self_hosted`, or `vercel` (see the Vercel notes) |
 | `MAX_UPLOAD_SIZE_BYTES` | `0` for the profile default (10 MiB self-hosted, 4 MiB Vercel); lower it to restrict uploads further |
-| `PDF_CONVERSION_ENABLED` | Unset = on except on Vercel; set `true`/`false` to override |
 | `ALLOWED_UPLOAD_EXTENSIONS` | Keep the default allowlist; remove types you do not need |
-| `AI_PROVIDER` | `stub` unless you intend to pay for Gemini |
-| `GEMINI_API_KEY` | Only when `AI_PROVIDER=gemini`; store as a secret |
+| `AI_API_URL` | Unset for the stub; the OpenAI-compatible endpoint (https) to enable drafting |
+| `AI_API_KEY` | Only with `AI_API_URL`; store as a secret |
+| `AI_MODEL` | Only with `AI_API_URL`; e.g. `qwen/qwen3.8-27b` |
 
 Rules:
 
@@ -76,8 +77,14 @@ Rules:
   development convenience, not a production setting.
 - The service-account JSON is mounted read-only or injected by the platform's
   secret manager. Do not bake it into the image.
-- Rotate `GEMINI_API_KEY` and the service-account key if either is exposed;
+- Set `FORWARDED_ALLOW_IPS` to the proxy that terminates TLS. Uvicorn trusts
+  only `127.0.0.1` by default, so without this every user shares one rate-limit
+  bucket; a burst then 429s unrelated accounts.
+- Rotate `AI_API_KEY` and the service-account key if either is exposed;
   deleting a later commit is not enough.
+- A named database (`FIRESTORE_DATABASE_ID`) is not covered by
+  `firebase deploy --only firestore:rules` unless `firebase.json` names it with
+  a `"database"` field; otherwise the repo's rules only reach `(default)`.
 
 ## 3. Deploy the backend
 
@@ -94,10 +101,11 @@ Rules:
    workers binding `0.0.0.0:8000`; a `503` health check with a Firebase
    message means configuration, not a stuck migration.
 
-The image installs LibreOffice for DOCX→PDF conversion. That is the main
-size cost and the reason the worker count is two: each worker can spawn a
-LibreOffice subprocess, and the deployment assumes a single container
-(ADR-003).
+The image installs no office suite: documents are Word-only, PDF uploads are
+converted in-process with `pdf2docx`, and generated files are gzip-compressed
+into Firestore (ADR-006). The worker count is two because one PDF conversion or
+one large document write occupies a worker for its duration, and the
+deployment assumes a single container (ADR-003).
 
 ## 4. Deploy the frontend
 
@@ -112,7 +120,7 @@ cd frontend
 npm ci
 $env:VITE_API_URL = "https://api.example.com"
 $env:VITE_FIREBASE_API_KEY = "..."
-# ... the other five VITE_FIREBASE_* values ...
+# ... the other VITE_FIREBASE_* values ...
 npm run build
 # upload frontend/dist/ with a catch-all rewrite to index.html
 ```
@@ -125,7 +133,6 @@ docker build `
   --build-arg VITE_FIREBASE_API_KEY=... `
   --build-arg VITE_FIREBASE_AUTH_DOMAIN=my-project.firebaseapp.com `
   --build-arg VITE_FIREBASE_PROJECT_ID=my-project `
-  --build-arg VITE_FIREBASE_STORAGE_BUCKET=my-project.firebasestorage.app `
   --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID=... `
   --build-arg VITE_FIREBASE_APP_ID=... `
   -t patent-frontend ./frontend
@@ -166,21 +173,23 @@ done:
    complete questionnaire → submit.
 5. Admin path: assign the patent to an approved `PATENT_AGENT`; try
    auto-assign as well.
-6. Agent path: accept → generate a draft section → generate DOCX → download
-   it → generate PDF (confirms LibreOffice in the image) → comment.
-7. Upload a file, download it, delete it; confirm the Storage objects appear
-   under the expected prefixes.
+6. Agent path: accept → generate a draft section → generate a DOCX → download
+   and open it → comment.
+7. Upload a DOCX, a PDF, and an image; confirm the PDF arrives as a `.docx`
+   download, then delete each file. Blobs are documents in Firestore, so the
+   console's `blobs` collection should gain and lose rows.
 8. Upload/activate a `.docx` template, then generate a document from it.
-9. Export a report CSV; toggle a report permission and confirm the export is
-   denied for the affected role.
-10. Check the backend logs for unhandled `500`s and confirm the production
+9. Confirm a PDF generation request returns `400` with the DOCX guidance.
+10. Export a report CSV; toggle a report permission and confirm the export is
+    denied for the affected role.
+11. Check the backend logs for unhandled `500`s and confirm the production
     error response stays terse.
 
 ## 7. Scale and availability
 
 This release assumes **one backend replica** (ADR-003). Document generation
-runs inside the request and may spawn LibreOffice; there is no job queue and
-no shared rate limiter. Before adding replicas:
+runs inside the request and writes to Firestore; there is no job queue and the
+rate limiter keeps per-worker buckets. Before adding replicas:
 
 - move document generation to a worker/job queue with retries and a shared
   status store, and
@@ -192,10 +201,9 @@ touching the backend.
 
 ## 8. Backups and retention
 
-- Firestore: enable scheduled backups (or export to a Cloud Storage bucket)
-  and test a restore. Firestore has no `pg_dump`.
-- Storage: enable object versioning or a lifecycle policy appropriate to
-  your retention obligations.
+- Firestore: enable scheduled backups (or a managed export) and test a
+  restore. Firestore has no `pg_dump`. Backups cover the `blobs` collection
+  too, so stored documents are protected by the same schedule.
 - Firebase Authentication: user records are managed by Firebase; document
   the export/recovery process you rely on.
 - Generated drafts and documents are drafting aids. Retain them according to
@@ -217,17 +225,13 @@ touching the backend.
 ## Vercel deployment notes
 
 Vercel is a good fit for the static frontend. It can also run the Python
-backend, but two platform limits change the shape:
+backend, but the platform's request/response size limits still change the
+shape. Two supported deployments:
 
-- request and buffered response bodies are capped at **4.5 MB**;
-- the Python runtime does **not** include LibreOffice.
-
-Two supported shapes:
-
-| Shape | Frontend | Backend | PDF |
-|---|---|---|---|
-| Split (recommended) | Vercel static | Container per §3 (Cloud Run, Fly.io, Render, …) | Yes |
-| Single vendor | Vercel static | Vercel Python function, `DEPLOYMENT_TARGET=vercel` | No, unless you use the container runtime (beta) |
+| Shape | Frontend | Backend |
+|---|---|---|
+| Split (recommended) | Vercel static | Container per §3 (Cloud Run, Fly.io, Render, …) |
+| Single vendor | Vercel static | Vercel Python function, `DEPLOYMENT_TARGET=vercel` |
 
 ### Static frontend on Vercel
 
@@ -252,7 +256,6 @@ Environment Variables) before the first deployment:
 - `VITE_FIREBASE_API_KEY`
 - `VITE_FIREBASE_AUTH_DOMAIN` — normally `<project>.firebaseapp.com`.
 - `VITE_FIREBASE_PROJECT_ID`
-- `VITE_FIREBASE_STORAGE_BUCKET`
 - `VITE_FIREBASE_MESSAGING_SENDER_ID`
 - `VITE_FIREBASE_APP_ID`
 
@@ -268,33 +271,37 @@ to `frame-src` in `frontend/nginx.conf`, `vercel.json`, and
 
 Do not add an `api/index.py` backend entry point to this Vercel project while
 using the split shape: the static frontend and the Python backend deploy
-separately, and the backend needs a host that can mount credentials and (for
-PDF) run LibreOffice.
+separately, and the backend needs a host that can mount (or inject)
+credentials and run a PDF conversion without hitting the function timeout.
 
 Running the backend as a Vercel Python function:
 
 1. Set `DEPLOYMENT_TARGET=vercel`, so the effective upload cap is 4 MiB and
    the whole-request cap is 4.5 MB. Explicit `MAX_UPLOAD_SIZE_BYTES` values
    above that are clamped, never honoured.
-2. PDF conversion is off by default on Vercel, and `/api/config/capabilities`
-   reports PDF off whenever LibreOffice is missing. PDF jobs return `400`; the
-   UI reads the capabilities and hides the PDF button. Set
-   `PDF_CONVERSION_ENABLED=true` only if the runtime actually has LibreOffice.
+2. PDF uploads are converted to DOCX in-process with `pdf2docx`, so no
+   LibreOffice is needed on any target. The conversion and the gzip write
+   both count against the function duration; a large scan may time out, in
+   which case the caller gets a 400/504 rather than a stored file.
 3. Inject `FIREBASE_SERVICE_ACCOUNT_JSON` from Vercel's secret store. The
    function filesystem is read-only except `/tmp`, so the path-based
-   credential file from §2 is not available.
+   credential file from §2 is not available. `pdf2docx` writes its working
+   files through `tempfile`, which uses `/tmp` on this runtime.
 4. Keep `CORS_ORIGINS` and `ALLOWED_HOSTS` set to the deployed domains; do not
    widen them to `*` to work around a CORS error.
 5. Document generation is synchronous. It must finish inside the function
    duration limit (300 s Hobby / 800 s Pro); the container shape has no such
    ceiling.
 
-What still does not fit: files larger than the cap. Raising
-`MAX_UPLOAD_SIZE_BYTES` cannot bypass a platform limit that runs before the
-app. Supporting multi-megabyte uploads on Vercel needs a direct-to-Firebase-
-Storage flow (browser uploads the blob, API stores only metadata), which is
-not implemented. Lowering the cap is the current mitigation. Downloads are
-streamed, so a generated document larger than 4.5 MB can still be downloaded.
+What still does not fit: files that compress to more than ~900 KB. Firestore
+caps a document at 1 MiB, so this is a storage limit, not a Vercel one, and
+raising `MAX_UPLOAD_SIZE_BYTES` does not move it. Downloads are streamed from
+memory, and the API reports the over-cap case as a 413 that names the limit.
+
+What changed from the old design: there is no direct-to-Cloud-Storage upload
+flow, because there is no bucket. Large-file support would need chunking a
+blob across several Firestore documents (rejected in ADR-006 until a real
+document approaches the cap).
 
 ## What this guide deliberately does not cover
 

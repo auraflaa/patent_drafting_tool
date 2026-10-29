@@ -54,14 +54,14 @@
 **patent_drafting_tool** is a full-stack web application that helps teams prepare patent applications:
 
 - **Innovators** disclose inventions through structured questionnaires, track status, and collaborate with agents.
-- **Patent agents** review disclosures, accept assignments, generate draft sections (with optional AI assistance), and produce DOCX/PDF documents.
+- **Patent agents** review disclosures, accept assignments, generate draft sections (with optional AI assistance), and produce Word documents.
 - **Admins and Super Admins** manage users, approve accounts, assign agents, manage templates, and view reports.
 
 The stack is **Firebase-only**:
 
 - **Identity:** Firebase Authentication (Google sign-in, browser-side Firebase JS SDK; the API verifies ID tokens).
 - **Data:** Cloud Firestore is the only system of record. There is no Postgres, no ORM, no migrations, and no `DATABASE_URL`.
-- **Files:** Cloud Storage holds uploads, templates, and generated documents.
+- **Files:** Firestore also stores uploads, templates, and generated documents, gzip-compressed in a `blobs` collection. There is no bucket or object storage.
 - **Backend:** FastAPI with Firebase Admin SDK, mounting exactly two routers (`app/api/auth.py`, `app/api/resources.py`).
 - **Frontend:** React 18 + Vite 6 + TypeScript `strict`, talking to the backend through one thin API wrapper.
 
@@ -77,9 +77,9 @@ The REST API deliberately keeps the legacy snake_case contract (`invention_title
 |---|---|
 | Invention intake | Teams, patent records, applicant/inventor parties, structured questionnaire with version snapshots |
 | Agent workflow | Available-agent listing with workload counts, assign / auto-assign / reassign, accept / reject with reasons |
-| Drafting | Section-wise draft generation (`ABSTRACT`, `BACKGROUND`, `SUMMARY`, `DESCRIPTION`, `CLAIMS`), version history; deterministic stub by default, optional Gemini provider |
-| Documents | DOCX generation from questionnaire answers, optional `.docx` templates via `docxtpl`, PDF conversion with LibreOffice, version list, retry, streamed downloads |
-| Files | Patent-scoped uploads to Cloud Storage, size/extension validation, streamed downloads, uploader/admin delete |
+| Drafting | Section-wise draft generation (`ABSTRACT`, `BACKGROUND`, `SUMMARY`, `DESCRIPTION`, `CLAIMS`), version history; deterministic stub by default, optional OpenAI-compatible provider |
+| Documents | DOCX generation from questionnaire answers, optional `.docx` templates via `docxtpl`, version list, retry, streamed downloads |
+| Files | Patent-scoped uploads stored compressed in Firestore, PDF→DOCX conversion on upload, size/extension validation, streamed downloads, uploader/admin delete |
 | Collaboration | Comments, calendar events, notifications (unread count, mark read) |
 | Templates | Admin-managed `.docx` templates per document type, activate/deactivate, unknown-placeholder warnings |
 | Reports & dashboard | Status counts, action-required queue, patent/document/user/calendar reports, CSV export, per-report permission matrix |
@@ -140,8 +140,8 @@ Statuses beyond `Draft Generated` (filing, examination, grant) are display/impor
 | Layer | Technology |
 |---|---|
 | API | FastAPI `>=0.115,<1.0`, Uvicorn, Pydantic Settings |
-| Auth / data / storage | `firebase-admin >=6.6,<8.0` — Firebase Authentication, Cloud Firestore, Cloud Storage |
-| Documents | `python-docx`, `docxtpl` (templates), LibreOffice in the Docker image for DOCX→PDF |
+| Auth / data | `firebase-admin >=6.6,<8.0` — Firebase Authentication and Cloud Firestore |
+| Documents | `python-docx`, `docxtpl` (templates), `pdf2docx` (PDF uploads converted to Word in-process) |
 | HTTP / uploads | `httpx`, `python-multipart` |
 | Tests | `pytest >=8.3` (offline; no Firebase credentials) |
 | Runtime | Python 3.11+ (Docker: `python:3.13-slim`), Gunicorn + Uvicorn workers in production |
@@ -160,7 +160,7 @@ Statuses beyond `Draft Generated` (filing, examination, grant) are display/impor
 **Infrastructure**
 
 - `docker-compose.yml`: backend + frontend, with Firebase external. No database container.
-- `backend/Dockerfile`: multi-stage Python build, LibreOffice, non-root `appuser`, `HEALTHCHECK /health`, two Gunicorn/Uvicorn workers.
+- `backend/Dockerfile`: multi-stage Python build, no office suite, non-root `appuser`, `HEALTHCHECK /health`, two Gunicorn/Uvicorn workers.
 - `frontend/Dockerfile`: Node build → nginx serve with SPA fallback (`frontend/nginx.conf`).
 - CI: `.github/workflows/ci.yml` (offline pytest + frontend build + docs health), `docker.yml` (image builds + health smoke test), `codeql.yml` (CodeQL).
 
@@ -180,9 +180,8 @@ patent_drafting_tool/
 ├── CHANGELOG.md               # Release history (Keep a Changelog)
 ├── DEPLOYMENT.md              # Production deployment guide
 ├── docker-compose.yml         # Local backend + frontend (Firebase external)
-├── firebase.json              # Firestore + Storage rules deploy config
+├── firebase.json              # Firestore rules deploy config
 ├── firestore.rules            # Deny all direct client access
-├── storage.rules              # Deny all direct client access
 ├── docs/
 │   ├── GETTING_STARTED.md     # Step-by-step first run
 │   ├── ARCHITECTURE.md        # System, auth, data, and workflow design
@@ -191,7 +190,7 @@ patent_drafting_tool/
 │   ├── DOCKER.md              # Image, compose, and env reference
 │   ├── FAQ.md                 # Repeated questions
 │   ├── TROUBLESHOOTING.md     # Symptom-first fixes
-│   └── decisions/             # ADR-001 … ADR-005
+│   └── decisions/             # ADR-001 … ADR-006
 ├── .github/
 │   ├── PULL_REQUEST_TEMPLATE.md
 │   ├── CODEOWNERS
@@ -206,7 +205,7 @@ patent_drafting_tool/
 │   │   ├── main.py            # FastAPI app, lifespan, /health, router mounts
 │   │   ├── api/               # auth.py + resources.py (only routers)
 │   │   ├── core/              # config, firebase, security
-│   │   └── services/          # repository, projections, rbac, storage,
+│   │   └── services/          # repository, projections, rbac, blobs,
 │   │                          # drafting, documents
 │   ├── tests/                 # Offline pytest suite
 │   ├── Dockerfile
@@ -243,7 +242,7 @@ patent_drafting_tool/
 | Node | 20.x (see `frontend/Dockerfile` build stage) | `node --version` |
 | npm | 10+ | Ships with Node 20 |
 | Docker + Compose | 24+ / v2 | Only for Option A |
-| Firebase project | Firestore + Authentication (+ Storage for uploads); no Realtime Database | See `backend/README.md` §2 |
+| Firebase project | Firestore + Authentication; no Realtime Database or Storage bucket | See `backend/README.md` §2 |
 
 ### 7.2 Option A — Docker Compose
 
@@ -254,7 +253,7 @@ docker compose up --build
 
 - Backend: http://localhost:8000 (`GET /health`, docs at `/docs`)
 - Frontend: http://localhost:5173
-- Firestore, Auth, and Storage are **external**; there is no database container.
+- Firestore and Auth are **external**; there is no database container and no bucket.
 
 `VITE_*` values are build args, not runtime variables — exporting them before `docker compose build` is what bakes them into the bundle. The backend reads `backend/.env` through `env_file`.
 
@@ -269,7 +268,7 @@ py -3.13 -m venv venv
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 Copy-Item .env.example .env
-# Edit .env — at minimum FIREBASE_PROJECT_ID, FIREBASE_STORAGE_BUCKET, BOOTSTRAP_ADMIN_EMAIL
+# Edit .env — at minimum FIREBASE_PROJECT_ID, FIRESTORE_DATABASE_ID, BOOTSTRAP_ADMIN_EMAIL
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
@@ -294,7 +293,7 @@ Full step-by-step walkthrough: [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTE
 
 1. Set `BOOTSTRAP_ADMIN_EMAIL` in `backend/.env` to an email you control.
 2. Save your Firebase service-account JSON to `backend/secrets/firebase-service-account.json` (git-ignored).
-3. From the repository root, run `firebase login`, `firebase use --add`, and `firebase deploy --only firestore:rules,storage` (one-time per project). The rules deny direct browser access; the backend Admin SDK bypasses them.
+3. From the repository root, run `firebase login`, `firebase use --add`, and `firebase deploy --only firestore:rules` (one-time per project). The rules deny direct browser access; the backend Admin SDK bypasses them.
 4. Enable the Google provider in Firebase Authentication and register `localhost` as an authorized domain.
 5. Start the backend and frontend, then sign in with that email.
 6. Your profile is auto-created as `SUPER_ADMIN` + approved.
@@ -313,7 +312,7 @@ Copy from `backend/.env.example`. Never commit `.env` or `secrets/`.
 | `FIREBASE_PROJECT_ID` | Yes | `your-firebase-project-id` | Firebase project for Auth + Firestore |
 | `FIREBASE_SERVICE_ACCOUNT_PATH` | Yes | `secrets/firebase-service-account.json` | Admin SDK credentials (server only) |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | No | _(empty)_ | Inline credentials JSON for hosts without a mountable file (Vercel); keep it in the platform secret manager |
-| `FIREBASE_STORAGE_BUCKET` | For uploads | `your-firebase-storage-bucket` | File + template storage bucket |
+| `FIRESTORE_DATABASE_ID` | No | _(empty = `(default)`)_ | Named Firestore database; see the rules note in `DEPLOYMENT.md` |
 | `FIREBASE_EMULATOR_HOST` | No | _(empty)_ | Only when using the Firebase Emulator Suite |
 | `BOOTSTRAP_ADMIN_EMAIL` | Yes (first run) | `you@example.com` | First login with this email → `SUPER_ADMIN` |
 | `ENVIRONMENT` | Yes | `development` | `development` \| `production` (error detail differs) |
@@ -321,11 +320,11 @@ Copy from `backend/.env.example`. Never commit `.env` or `secrets/`.
 | `ALLOWED_HOSTS` | Yes | `localhost,127.0.0.1` | Trusted hosts (real domain in prod) |
 | `DEPLOYMENT_TARGET` | No | `self_hosted` | `self_hosted` \| `vercel` (clamps uploads below Vercel's 4.5 MB cap) |
 | `MAX_UPLOAD_SIZE_BYTES` | No | `0` (profile default) | Per-file cap; `0` = 10 MiB self-hosted / 4 MiB Vercel; explicit values are clamped on Vercel |
-| `PDF_CONVERSION_ENABLED` | No | _(unset)_ | `true`/`false`; unset = on except on Vercel, and the API still reports PDF off when LibreOffice is missing |
-| `ALLOWED_UPLOAD_EXTENSIONS` | No | `.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.txt,.csv,.md,.rtf,.png,.jpg,.jpeg,.gif,.webp,.tif,.tiff` | Upload allowlist; content is sniffed against the extension |
-| `AI_PROVIDER` | No | `stub` | `stub` (placeholder) \| `gemini` (real drafting) |
-| `GEMINI_API_KEY` | If `AI_PROVIDER=gemini` | _(empty)_ | Google AI API key |
-| `GEMINI_MODEL` | No | `gemini-2.0-flash` | Gemini model ID |
+| `ALLOWED_UPLOAD_EXTENSIONS` | No | `.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.txt,.csv,.md,.rtf,.png,.jpg,.jpeg,.gif,.webp,.tif,.tiff` | Upload allowlist; content is sniffed against the extension, and PDFs are converted to DOCX before storage |
+| `AI_API_URL` | No | _(empty)_ | OpenAI-compatible `chat/completions` endpoint (https, or http for localhost) |
+| `AI_API_KEY` | With `AI_API_URL` | _(empty)_ | Provider key; stored as a secret, never logged |
+| `AI_MODEL` | With `AI_API_URL` | _(empty)_ | Model ID, e.g. `qwen/qwen3.8-27b` |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | No | `60` | Per-client cap on mutating `/api/auth` routes; `0` disables |
 
 There are no database, JWT, OAuth-client, or storage-provider variables: `app/core/config.py` reads only the settings above (ADR-005).
 
@@ -339,7 +338,6 @@ Copy from `frontend/.env.example`. `VITE_*` values are **baked at build time**.
 | `VITE_FIREBASE_API_KEY` | Yes | Web SDK config from Firebase console → Project settings → Your apps |
 | `VITE_FIREBASE_AUTH_DOMAIN` | Yes | Usually `<project>.firebaseapp.com` |
 | `VITE_FIREBASE_PROJECT_ID` | Yes | Firebase project ID |
-| `VITE_FIREBASE_STORAGE_BUCKET` | For Storage | `<project>.firebasestorage.app` (new projects) or `<project>.appspot.com` |
 | `VITE_FIREBASE_MESSAGING_SENDER_ID` | Yes | Web SDK config |
 | `VITE_FIREBASE_APP_ID` | Yes | Web SDK config |
 
@@ -347,7 +345,7 @@ These values are public by design (they identify the Firebase project). The serv
 
 For a static Vercel deployment, set the same `VITE_*` values in the Vercel project and use the checked-in `vercel.json` (repo-root project) or `frontend/vercel.json` (Root Directory = `frontend`); see `DEPLOYMENT.md` → Vercel deployment notes.
 
-The browser uses the Web SDK for **Authentication only**. Firestore and Storage are reached exclusively by the backend Admin SDK, so the checked-in `firestore.rules` and `storage.rules` deny every direct client read and write. Deploy them with `firebase deploy --only firestore:rules,storage` after `firebase use --add`. There is no Realtime Database in this architecture.
+The browser uses the Web SDK for **Authentication only**. Firestore is reached exclusively by the backend Admin SDK, so the checked-in `firestore.rules` deny every direct client read and write. Deploy them with `firebase deploy --only firestore:rules` after `firebase use --add`. There is no Realtime Database or Cloud Storage in this architecture.
 
 ---
 
@@ -364,7 +362,7 @@ The browser uses the Web SDK for **Authentication only**. Firestore and Storage 
 
 1. Log in → `/agent` shows the assignment queue (`Awaiting decision` vs rest).
 2. Accept (or decline with reason) an assignment.
-3. Open `/agent/patents/:id/draft` → generate sections (`Abstract`, `Background`, `Summary`, `Detailed Description`, `Claims`) → review versions → generate DOCX/PDF → collaborate via comments/files/calendar.
+3. Open `/agent/patents/:id/draft` → generate sections (`Abstract`, `Background`, `Summary`, `Detailed Description`, `Claims`) → review versions → generate the DOCX → collaborate via comments/files/calendar.
 
 **As an Admin / Super Admin:**
 
@@ -421,7 +419,7 @@ Conventions: TypeScript `strict` + `noUnusedLocals`; functional React components
 | CI | GitHub Actions `ci.yml` | Backend on ubuntu/windows/macos × Python 3.11/3.13; frontend on the same three OSes; docs-health on ubuntu. |
 | Docker | `docker.yml` + `docs/DOCKER.md` | Image builds + backend `/health` smoke test. |
 
-The offline suite cannot prove live Firebase IAM or that the deployed `firestore.rules` / `storage.rules` match this repository. The manual checklist for a real project is in [`backend/README.md`](./backend/README.md) §7.
+The offline suite cannot prove live Firebase IAM or that the deployed `firestore.rules` match this repository. The manual checklist for a real project is in [`backend/README.md`](./backend/README.md) §7.
 
 ---
 
@@ -444,11 +442,11 @@ Full guide: [`DEPLOYMENT.md`](./DEPLOYMENT.md) (Firebase project setup, containe
 Production checklist:
 
 - `ENVIRONMENT=production`, `CORS_ORIGINS` restricted to the real frontend origin, `ALLOWED_HOSTS` set to the real backend host.
-- Firebase service-account JSON mounted as a secret (never baked into the image); `FIREBASE_PROJECT_ID` / `FIREBASE_STORAGE_BUCKET` point at the production project.
+- Firebase service-account JSON mounted as a secret (never baked into the image); `FIREBASE_PROJECT_ID` / `FIRESTORE_DATABASE_ID` point at the production project.
 - `BOOTSTRAP_ADMIN_EMAIL` set for the first login, then removed or changed per policy.
-- One backend replica: document generation runs in-process and spawns LibreOffice (ADR-003).
+- One backend replica: document generation runs in-process and holds a worker while it writes to Firestore (ADR-003).
 - Health check: `GET /health` → `200`; `503` means Firebase is not configured or reachable.
-- Generated documents and uploads live in Cloud Storage, not on the container filesystem.
+- Generated documents and uploads live in Firestore, compressed, not on the container filesystem.
 
 ---
 
@@ -534,7 +532,7 @@ SPDX-License-Identifier: Apache-2.0
 
 ## 23. Acknowledgements
 
-- Built with FastAPI, React, Vite, Firebase Authentication, Cloud Firestore, and Cloud Storage.
-- DOCX pipeline via `python-docx` + `docxtpl`; PDF conversion via LibreOffice in Docker.
+- Built with FastAPI, React, Vite, Firebase Authentication, and Cloud Firestore.
+- Word pipeline via `python-docx` + `docxtpl`; PDF uploads converted to DOCX with `pdf2docx`.
 - Calendar via FullCalendar, charts via Recharts, PDF preview via react-pdf.
 - Thanks to all contributors — see commit history.

@@ -26,8 +26,9 @@ npm run dev
   `is_admin`, `is_super_admin`, `ensure_permission`).
 - Services: `repository.py` (thin Firestore CRUD/query helpers),
   `projections.py` (REST shapes + visibility), `rbac.py` (role/permission
-  catalog and overrides), `storage.py` (Cloud Storage), `drafting.py`
-  (stub/Gemini text), `documents.py` (DOCX/PDF).
+  catalog and overrides), `blobs.py` (gzip documents in Firestore), `uploads.py`
+  (extension/sniffing/ZIP guards), `drafting.py` (stub/OpenAI-compatible text),
+  `documents.py` (DOCX assembly, PDF→DOCX import).
 - Guards: `active_user` → `ensure_permission("<CODE>")` and/or
   `require_roles(*codes)` / `is_admin()`; visibility via
   `services/projections.py` (`patent_visible`, `require_patent`).
@@ -72,16 +73,15 @@ npm run dev
   → `backend/secrets/firebase-service-account.json`. Both git-ignored.
   `config.py` uses `extra='ignore'`, so stale variables do not crash startup —
   but do not add new ones without updating `.env.example` and the docs.
-- Firebase rules are committed: `firestore.rules` and `storage.rules` deny all
-  direct client access. Deploy them with
-  `firebase deploy --only firestore:rules,storage`. Do not weaken a rule to
-  unblock a local test — the browser only uses Firebase Auth and must go
-  through the API. The Firebase CLI cache (`.firebase/`), its debug logs, and
-  admin-SDK key files are git-ignored.
+- Firebase rules are committed: `firestore.rules` deny all direct client
+  access. Deploy them with `firebase deploy --only firestore:rules`. Do not
+  weaken a rule to unblock a local test — the browser only uses Firebase Auth
+  and must go through the API. The Firebase CLI cache (`.firebase/`), its debug
+  logs, and admin-SDK key files are git-ignored.
 - Frontend: copy `frontend/.env.example` → `frontend/.env`. `VITE_*` bake at
   build time — changing them requires restarting `npm run dev` or rebuilding
   (`npm run build` / Docker build arg).
-- Never log tokens, service-account JSON, or `GEMINI_API_KEY`. Redact before
+- Never log tokens, service-account JSON, or `AI_API_KEY`. Redact before
   pasting logs into issues.
 
 ## 5. Tests
@@ -95,8 +95,9 @@ npm run dev
   - the RBAC catalog is internally consistent;
   - stub drafting always carries the not-legal-advice warning;
   - DOCX assembly produces a non-empty document.
-- Live Firestore/Auth/Storage and LibreOffice PDF conversion are **not** in
-  pytest. Verify them with the manual checklist in `backend/README.md` §7.
+- Live Firestore/Auth behaviour, real blob writes, and PDF conversion fidelity
+  are **not** in pytest. Verify them with the manual checklist in
+  `backend/README.md` §7.
 - Frontend: no unit runner yet. Verify with `npm run build` (type-check) +
   manual walkthroughs per role. Adding `vitest` is a welcome `help wanted`
   contribution (document it here in the same PR).
@@ -113,7 +114,9 @@ npm run dev
 | Login page shows a configuration error | `VITE_FIREBASE_*` empty | Fill `frontend/.env`, restart `npm run dev` |
 | `auth/unauthorized-domain` | Frontend origin not registered | Firebase console → Authentication → Authorized domains |
 | `tsc` unused-var errors | `noUnusedLocals` | Delete unused imports/params |
-| LibreOffice missing locally | DOCX→PDF shells out | Use the Docker image (has LibreOffice) or skip PDF locally |
+| PDF upload returns `400` | Damaged, encrypted, or over 100 pages | Re-export the PDF, remove its password, or upload a DOCX |
+| `413` naming the compression limit | The gzip payload exceeds 900 KB, so it cannot fit one Firestore document | Upload a smaller file or split it |
+| | `429 Too Many Requests` | Auth rate limit exceeded | Wait, or set AUTH_RATE_LIMIT_PER_MINUTE higher / set FORWARDED_ALLOW_IPS to your proxy |
 
 ## 7. Debugging tips
 
@@ -124,9 +127,13 @@ npm run dev
   Firebase owns the session.
 - Firestore: use Firebase Console → Firestore Data viewer to confirm document
   shapes (`role_codes`, `account_status`, `patent_application_id` links).
-- Storage: confirm the bucket name matches `FIREBASE_STORAGE_BUCKET`; check
-  blob prefixes `patents/{id}/files/`, `templates/{type}/v{n}.docx`, and the
-  generated-document prefix used by `services/documents.py`.
+- Documents: open the `blobs` collection to inspect stored files —
+  `size_bytes` is the original size, `stored_bytes` the gzip size (cap
+  900,000), and `sha256` the integrity hash. The owning `files`, `templates`,
+  `documents`, or `document_versions` row points at the blob id.
+- No bucket or emulator is involved: a Firestore emulator suffices for offline
+  work (`FIREBASE_EMULATOR_HOST`), because documents and app data live in the
+  same database.
 
 ## 8. Performance notes
 
@@ -134,7 +141,52 @@ npm run dev
   filters or pagination rather than loading everything and filtering in Python.
 - `recharts` + `FullCalendar` are the heaviest frontend deps; pages are route-
   split, so keep them out of the login bundle.
-- The backend Docker image is large because of LibreOffice — expected. Removing
-  it also removes PDF generation.
-- Document generation runs in-process and spawns LibreOffice; the deployment
+- The backend Docker image stays small: there is no office suite, and PDF
+  import is the pure-Python `pdf2docx` dependency.
+- Document generation and PDF conversion run in-process; the deployment
   assumes one backend replica (ADR-003).
+
+## 9. Rate limiting
+
+`backend/app/core/ratelimit.py` implements a sliding-window rate limiter on
+`/api/auth/*` routes:
+
+- Default: `AUTH_RATE_LIMIT_PER_MINUTE=60` (set `0` to disable)
+- Exempt paths: `/api/auth/me` and `/api/auth/logout` (authenticated polling
+  must never be rate-limited)
+- The limiter keys on `X-Forwarded-For`; set `FORWARDED_ALLOW_IPS` to your
+  proxy (e.g. `*` on Cloud Run) so every user gets their own bucket rather
+  than sharing the proxy IP. Without this, every user shares one limit.
+- The limit is per gunicorn worker; with `-w 2` the effective limit is
+  approximately doubled. For production replicas, rate-limit at the
+  platform/edge (WAF, Cloud Run concurrency, etc.) rather than in-process.
+
+## 10. AI drafting configuration
+
+Backend drafting (`app/services/drafting.py`) supports three environment
+variables:
+
+| Variable | Required | Example | Purpose |
+|---|---|---|---|
+| `AI_API_URL` | No (empty = stub) | `https://api.groq.com/openai/v1/chat/completions` | OpenAI-compatible chat endpoint |
+| `AI_API_KEY` | Required if `AI_API_URL` set | `gsk_...` | Bearer token, sent in `Authorization` header |
+| `AI_MODEL` | Required if `AI_API_URL` set | `qwen/qwen3.8-27b` | Model name sent in the request body |
+
+All three must be set together; providing only one or two raises a clear
+error. When unset, the stub provider returns a clearly labelled placeholder
+(no network calls).
+
+## 11. Session persistence
+
+`AuthContext` persists `profile`, `permissions`, and `status` to
+`localStorage` under `patent-platform:profile:v2`. On reload, the cached
+state renders immediately while Firebase restores the session in the
+background. On logout or 401, the cache is cleared.
+
+## 12. Error boundary
+
+`frontend/src/components/ErrorBoundary.tsx` wraps `<App />` in `main.tsx`.
+React errors during render produce a friendly UI instead of a blank page.
+All frontend errors are logged via `lib/api.ts#logError` (console in
+development, monitoring endpoint in production); user-facing messages are
+always generic (e.g. "Your session has expired. Please sign in again.")

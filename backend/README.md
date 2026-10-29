@@ -1,13 +1,15 @@
 # Backend — Firebase edition
 
 FastAPI backend for patent_drafting_tool. Firebase Authentication verifies
-identity, Cloud Firestore is the only system of record, and Cloud Storage
-holds blobs. There is no Supabase, PostgreSQL, SQLAlchemy, Alembic, or
-object-storage vendor in this tree (ADR-005).
+identity and Cloud Firestore is the only system of record, including the
+gzip-compressed document bytes in its `blobs` collection. There is no
+Supabase, PostgreSQL, SQLAlchemy, Alembic, Cloud Storage, or object-storage
+vendor in this tree (ADR-005, ADR-006).
 
 The only mounted routers are `app/api/auth.py` and `app/api/resources.py`.
 Everything else lives in `app/core/` (config, Firebase init, guards) and
-`app/services/` (repository, projections, RBAC, storage, drafting, documents).
+`app/services/` (repository, projections, RBAC, blobs, uploads, drafting,
+documents).
 
 ## 1. Requirements
 
@@ -15,7 +17,9 @@ Everything else lives in `app/core/` (config, Firebase init, guards) and
 - A Firebase project with:
   - Cloud Firestore enabled
   - Firebase Authentication enabled (Google provider for the shipped UI)
-  - Cloud Storage enabled if uploads/templates/generated documents are needed
+
+No bucket is required: uploads, templates, and generated documents are stored
+compressed in Firestore.
 
 ## 2. Firebase setup
 
@@ -24,21 +28,21 @@ Everything else lives in `app/core/` (config, Firebase init, guards) and
    carefully; it is difficult to change later.
 3. **Build → Authentication → Sign-in method** → enable **Google**. Add
    `localhost` and your production domain under **Authorized domains**.
-4. **Build → Storage** → enable a bucket if you need uploads/templates.
-5. **Project settings → Your apps** → register a Web app and copy the six
+4. **Project settings → Your apps** → register a Web app and copy the five
    `VITE_FIREBASE_*` values for the frontend.
-6. **Project settings → Service accounts → Generate new private key** → save
+5. **Project settings → Service accounts → Generate new private key** → save
    the downloaded JSON as `secrets/firebase-service-account.json` (create the
    folder; it is git-ignored).
-7. From the repository root, deploy the client rules with
-   `firebase deploy --only firestore:rules,storage` (after
-   `firebase login` and `firebase use --add`). The browser never talks to
-   Firestore or Storage directly, so `firestore.rules` and `storage.rules`
-   deny every client request while the Admin SDK keeps full access. This
-   project does not use the Realtime Database; Firestore is the only system
-   of record (ADR-005).
-8. Copy `.env.example` to `.env`, then set `FIREBASE_PROJECT_ID`,
-   `FIREBASE_STORAGE_BUCKET`, and `BOOTSTRAP_ADMIN_EMAIL`.
+6. From the repository root, deploy the client rules with
+   `firebase deploy --only firestore:rules` (after `firebase login` and
+   `firebase use --add`). The browser never talks to Firestore directly, so
+   `firestore.rules` deny every client request while the Admin SDK keeps full
+   access — including the `blobs` collection. This project does not use the
+   Realtime Database or Cloud Storage; Firestore is the only system of record
+   (ADR-005).
+7. Copy `.env.example` to `.env`, then set `FIREBASE_PROJECT_ID`,
+   `FIRESTORE_DATABASE_ID` (if you use a named database), and
+   `BOOTSTRAP_ADMIN_EMAIL`.
 
 The service-account JSON and `.env` contain sensitive values. Do not commit
 or share them; `.gitignore` excludes both.
@@ -94,20 +98,24 @@ The full catalog with permission requirements is in
 ### Runtime limits
 
 `GET /api/config/capabilities` is public and returns the deployment profile:
-`deployment_target`, `max_upload_size_bytes`, `max_request_body_bytes`, and
-`pdf_generation_enabled`. The React client reads it once per page load, checks
-file sizes before uploading, and hides PDF generation when it is unavailable.
+`deployment_target`, `max_upload_size_bytes`, and `max_request_body_bytes`. The
+React client reads it once per page load and checks file sizes before uploading.
 
 | Variable | Default | Effect |
 |---|---|---|
 | `DEPLOYMENT_TARGET` | `self_hosted` | `vercel` clamps uploads to 4 MiB and whole requests to 4.5 MB |
 | `MAX_UPLOAD_SIZE_BYTES` | `0` | `0` = profile default (10 MiB self-hosted, 4 MiB Vercel); explicit values are still clamped on Vercel |
-| `PDF_CONVERSION_ENABLED` | unset | `true`/`false`; unset = on except on Vercel, and the API reports PDF off if LibreOffice is missing |
 
 Requests over the body limit are rejected with `413` before routing, and
 multipart uploads are also counted while streaming, so a missing
-`Content-Length` does not bypass the cap. Downloads stream from Cloud Storage
-instead of buffering the whole object in memory.
+`Content-Length` does not bypass the cap. A file whose gzip payload exceeds
+900 KB (the Firestore document budget) is rejected with `413` and a message
+naming the limit. Downloads decompress from memory, verify the SHA-256, and
+stream from there.
+
+Documents are Word-only: generation accepts `DOCX` and returns `400` for `PDF`,
+while uploaded PDFs are converted to DOCX with `pdf2docx` before storage. No
+PDF is ever stored (ADR-006).
 
 Firestore is NoSQL: there are no joins and no migrations. Documents are
 stored in collections and linked by string IDs. The collection map is in
@@ -138,9 +146,11 @@ a real Firebase project before shipping.
 - New users are pending until approved, except the configured bootstrap admin.
 - Verify owner/role access with separate Innovator, Patent Agent, Admin, and
   Super Admin accounts.
-- Upload/download/delete a test file after enabling Storage.
-- Generate DOCX and PDF documents; confirm downloads and the draft-only
-  warning.
+- Upload/download/delete a test file (DOCX and PDF); the PDF must arrive as a
+  `.docx` download, and the `blobs` collection must gain and lose one row per
+  file.
+- Generate the DOCX document; confirm the download opens in a word processor,
+  the draft-only warning is present, and a `PDF` request returns `400`.
 - Upload/activate a `.docx` template and generate from it.
 - Exercise assignment, questionnaire, reports, and template scenarios.
 - Confirm `PATCH`/`DELETE` on another user's resource returns `403`/`404`,
@@ -155,6 +165,10 @@ a real Firebase project before shipping.
 - Use HTTPS in production, restrict CORS and allowed hosts, keep
   service-account keys outside source control, and configure Firestore
   backups/retention.
-- Uploads are validated for non-empty content, size, and blocked extensions.
-  Do not weaken that validation for convenience.
+- Uploads are validated for non-empty content, size, the extension allowlist,
+  and ZIP bombs; converted PDFs are re-validated as DOCX. Do not weaken that
+  validation for convenience.
+- Document bytes are stored in Firestore with a SHA-256 checksum; a mismatch is
+  refused on read rather than served. Blob ids are not capabilities: the API
+  re-checks the patent and the permission on every download.
 - Generated patent text is a draft only and is not legal advice.

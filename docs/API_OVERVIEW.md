@@ -17,13 +17,13 @@ Conventions:
 |---|---|---|---|
 | `GET` | `/` | No | Service info `{name, version, docs, health}` |
 | `GET` | `/health` | No | Firestore probe; `200 ok/connected` or `503 degraded` |
-| `GET` | `/api/config/capabilities` | No | Runtime limits: `{deployment_target, max_upload_size_bytes, max_request_body_bytes, pdf_generation_enabled}` |
+| `GET` | `/api/config/capabilities` | No | Runtime limits: `{deployment_target, max_upload_size_bytes, max_request_body_bytes}` |
 
-The frontend reads `/api/config/capabilities` once per page load, rejects
-oversized files before uploading, and hides PDF generation when the deployment
-has no LibreOffice. Uploads over the cap return `413`; PDF requests return
-`400` when PDF generation is disabled (the default on Vercel, or when
-LibreOffice is missing).
+The frontend reads `/api/config/capabilities` once per page load and rejects
+oversized files before uploading. Uploads over the cap return `413`; an upload
+that cannot fit in one Firestore document after compression also returns
+`413`, with the ~900 KB limit named in the message. Document generation is
+Word-only, so a `PDF` output request returns `400`.
 
 ## Auth (`/api/auth`)
 
@@ -108,8 +108,8 @@ Section types: `ABSTRACT`, `BACKGROUND`, `SUMMARY`, `DESCRIPTION`, `CLAIMS`. Stu
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/api/patents/{patent_id}/files` | Visible | List metadata |
-| `POST` | `/api/patents/{patent_id}/files` | `<FILES_UPLOAD>` | Multipart field `upload`; validates non-empty, size cap, blocked extensions |
-| `GET` | `/api/patents/{patent_id}/files/{file_id}/download` | Visible | Streams the blob as an attachment |
+| `POST` | `/api/patents/{patent_id}/files` | `<FILES_UPLOAD>` | Multipart field `upload`; validates non-empty, size cap, extension allowlist. A PDF is converted to DOCX before storage and returns `source_file_name` + `converted_from_pdf`. |
+| `GET` | `/api/patents/{patent_id}/files/{file_id}/download` | Visible | Streams the stored file as an attachment |
 | `DELETE` | `/api/patents/{patent_id}/files/{file_id}` | Uploader, admin, or `<FILES_DELETE>` | Delete blob + metadata; `204` |
 
 ## Documents
@@ -118,13 +118,16 @@ Section types: `ABSTRACT`, `BACKGROUND`, `SUMMARY`, `DESCRIPTION`, `CLAIMS`. Stu
 |---|---|---|---|
 | `GET` | `/api/patents/{patent_id}/documents` | `<DOCUMENTS_VIEW>` | List documents |
 | `GET` | `/api/patents/{patent_id}/documents/jobs` | `<DOCUMENTS_VIEW>` | List generation jobs |
-| `POST` | `/api/patents/{patent_id}/documents/generate` | `<DOCUMENTS_GENERATE>` + assigned agent/admin | Body `{output_format: "DOCX"\|"PDF"}`; status `201`, returns the job |
+| `POST` | `/api/patents/{patent_id}/documents/generate` | `<DOCUMENTS_GENERATE>` + assigned agent/admin | Body `{output_format: "DOCX"}`; status `201`, returns the job. `"PDF"` returns `400`. |
 | `POST` | `/api/patents/{patent_id}/documents/jobs/{job_id}/retry` | `<DOCUMENTS_GENERATE>` + assigned agent/admin | Re-runs a failed job |
 | `GET` | `/api/patents/{patent_id}/documents/{document_id}/versions` | `<DOCUMENTS_VIEW>` | Version list |
-| `GET` | `/api/patents/{patent_id}/documents/{document_id}/download` | `<DOCUMENTS_VIEW>` | Stream DOCX/PDF |
+| `GET` | `/api/patents/{patent_id}/documents/{document_id}/download` | `<DOCUMENTS_VIEW>` | Stream the generated DOCX |
 | `GET` | `/api/patents/{patent_id}/documents/versions/{version_id}/download` | `<DOCUMENTS_VIEW>` | Stream a specific version |
 
-Generation requires the application to be `Under Review` or `Draft Generated`. PDF conversion needs LibreOffice (present in the Docker image).
+Generation requires the application to be `Under Review` or `Draft Generated`.
+Documents are Word-only (ADR-006): the DOCX is gzip-compressed into Firestore,
+and a generated file that cannot fit one document is reported as a failed job
+with the limit in `error_message`.
 
 ## Comments and calendar
 

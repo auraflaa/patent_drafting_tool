@@ -1,8 +1,9 @@
 # Getting started
 
 Step-by-step first run for **patent_drafting_tool**, from zero to a logged-in
-admin. The stack is Firebase-only: Authentication, Firestore, and Storage are
-managed services; the repository contains the FastAPI backend and the React
+admin. The stack is Firebase-only: Authentication and Firestore are managed
+services, and Firestore also stores the uploaded and generated documents
+(compressed). The repository contains the FastAPI backend and the React
 frontend.
 
 ---
@@ -10,7 +11,7 @@ frontend.
 ## 1. What you need
 
 - Python 3.11+ (3.13 recommended), Node 20.x, Git, and (optionally) Docker + Compose.
-- A Firebase project with **Firestore**, **Authentication** (Google), and — for uploads — **Cloud Storage**.
+- A Firebase project with **Firestore** and **Authentication** (Google). No bucket is needed.
 - Windows PowerShell commands are shown; macOS/Linux users translate `Copy-Item` → `cp` and venv activation to `source venv/bin/activate`.
 
 ## 2. Clone
@@ -27,14 +28,14 @@ Follow `backend/README.md` §2 (summary here — the backend README is authorita
 1. Go to https://console.firebase.google.com/ → create or select a project. Note the **Project ID**.
 2. **Build → Firestore Database** → Create database. Choose the region carefully (hard to change later).
 3. **Build → Authentication → Sign-in method** → enable **Google**. Under **Authorized domains**, `localhost` is present by default; add your production domain later.
-4. **Build → Storage** → enable a bucket if uploads/templates are needed. Note the bucket name.
-5. **Project settings → Service accounts → Generate new private key** → save the JSON as `backend/secrets/firebase-service-account.json` (create the `secrets/` folder; it is git-ignored).
-6. **Project settings → Your apps → Web app** → register an app and copy the six `VITE_FIREBASE_*` values.
-7. Install the Firebase CLI (`npm i -g firebase-tools`), run `firebase login` and `firebase use --add` from the repository root, then deploy the checked-in rules: `firebase deploy --only firestore:rules,storage`. They deny all direct browser access because only the backend Admin SDK reads and writes Firestore and Storage.
-8. Decide your bootstrap admin email — an address you control. Never use a shared address.
+4. **Project settings → Service accounts → Generate new private key** → save the JSON as `backend/secrets/firebase-service-account.json` (create the `secrets/` folder; it is git-ignored).
+5. **Project settings → Your apps → Web app** → register an app and copy the five `VITE_FIREBASE_*` values.
+6. Install the Firebase CLI (`npm i -g firebase-tools`), run `firebase login` and `firebase use --add` from the repository root, then deploy the checked-in rules: `firebase deploy --only firestore:rules`. They deny all direct browser access because only the backend Admin SDK reads and writes Firestore.
+7. Decide your bootstrap admin email — an address you control. Never use a shared address.
 
-Firestore is the only system of record (ADR-005). The Realtime Database is not
-used, even if the Web app config displays a `databaseURL`.
+Firestore is the only system of record (ADR-005) and also holds the document
+bytes (ADR-006). The Realtime Database and Cloud Storage are not used, even if
+the Web app config displays a `databaseURL` or `storageBucket`.
 
 ## 4. Configure the backend
 
@@ -52,11 +53,16 @@ Edit `backend/.env`:
 ```ini
 FIREBASE_PROJECT_ID=your-firebase-project-id
 FIREBASE_SERVICE_ACCOUNT_PATH=secrets/firebase-service-account.json
-FIREBASE_STORAGE_BUCKET=your-firebase-storage-bucket
 BOOTSTRAP_ADMIN_EMAIL=you@example.com
 ENVIRONMENT=development
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ALLOWED_HOSTS=localhost,127.0.0.1
+FIRESTORE_DATABASE_ID=your-firestore-database-id
+FORWARDED_ALLOW_IPS=*
+AUTH_RATE_LIMIT_PER_MINUTE=60
+AI_API_URL=
+AI_API_KEY=
+AI_MODEL=
 ```
 
 Start it:
@@ -87,7 +93,6 @@ VITE_API_URL=http://localhost:8000
 VITE_FIREBASE_API_KEY=...
 VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
 VITE_FIREBASE_PROJECT_ID=your-project
-VITE_FIREBASE_STORAGE_BUCKET=your-project.firebasestorage.app
 VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_FIREBASE_APP_ID=...
 ```
@@ -129,8 +134,8 @@ As **Patent Agent**:
 
 5. `/agent` → accept the assignment.
 6. `/agent/patents/:id/draft` → **Generate** a `Summary` section → confirm a version appears.
-7. Generate a DOCX document → confirm download works. PDF generation requires LibreOffice; use the Docker image if it is not installed locally.
-8. Upload a supporting file, download it, then delete it.
+7. Generate a DOCX document → confirm download works. PDF output is not offered: open the DOCX and export a PDF from your word processor if you need one.
+8. Upload a supporting file (a PDF arrives as DOCX), download it, then delete it.
 
 As **Admin**:
 
@@ -148,8 +153,8 @@ As **Admin**:
 | `403 awaiting approval` | Account is pending. Approve it via the Super Admin dashboard. |
 | CORS errors in browser console | `CORS_ORIGINS` must include the exact frontend origin (`http://localhost:5173`). |
 | `TrustedHost` 400s | `ALLOWED_HOSTS` must include `localhost,127.0.0.1`. |
-| Uploads fail | Bucket unset, `MAX_UPLOAD_SIZE_BYTES` exceeded, or a blocked extension. Check backend logs (non-prod includes the reason). |
-| PDF generation fails locally | LibreOffice (`soffice`) is not installed; DOCX still works. Use `docs/DOCKER.md` for PDF. |
-| Draft returns placeholder | Expected without `AI_PROVIDER=gemini` + `GEMINI_API_KEY`. Set both to enable real generation. |
+| Uploads fail | `MAX_UPLOAD_SIZE_BYTES` exceeded, an extension outside the allowlist, or the compressed file is over the 900 KB Firestore limit. Check backend logs (non-prod includes the reason). |
+| PDF upload returns `400` | The file is damaged, password-protected, or over 100 pages. Re-export it or upload a DOCX. |
+| Draft returns placeholder | Expected without `AI_API_URL` + `AI_API_KEY` set. Configure both (and `AI_MODEL`) to enable real generation. |
 
 Still stuck? See [`SUPPORT.md`](../SUPPORT.md) and [`DEVELOPMENT.md`](./DEVELOPMENT.md).

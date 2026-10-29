@@ -8,7 +8,7 @@ Short answers to questions that come up repeatedly. Longer guides:
 ## Product
 
 **Is generated patent text legal advice?**
-No. Every draft — stub or Gemini — is a drafting aid with an explicit
+No. Every draft — stub or AI-generated — is a drafting aid with an explicit
 not-legal-advice warning. A qualified patent professional must review anything
 before filing.
 
@@ -19,8 +19,9 @@ permissions, reports). See README §3.
 
 **Which backend does it use?**
 Firebase only: Authentication for identity, Cloud Firestore for application
-data, Cloud Storage for blobs. The old Postgres/SQLAlchemy stack was removed
-in ADR-005; there is no second system of record.
+data and the stored documents. The old Postgres/SQLAlchemy stack was removed
+in ADR-005, and the document bytes moved from Cloud Storage into Firestore in
+ADR-006; there is no second system of record.
 
 **Can I run it without Firebase?**
 The backend boots without credentials, and the frontend builds, but nothing
@@ -32,19 +33,19 @@ offline-ish setup.
 
 **Where do the frontend Firebase values come from?**
 Firebase console → Project settings → Your apps → Web app → SDK setup and
-configuration. Put all six `VITE_FIREBASE_*` values in `frontend/.env`. They
+configuration. Put all five `VITE_FIREBASE_*` values in `frontend/.env`. They
 are public identifiers, not secrets.
 
 **Do I need the Realtime Database?**
 No. Firestore is the only system of record (ADR-005); the `databaseURL` in the
 Web app config is unused. All reads and writes go through the API.
 
-**Why do `firestore.rules` and `storage.rules` deny everything?**
+**Why does `firestore.rules` deny everything?**
 The browser signs in with Firebase Auth and then talks only to the FastAPI
-backend. Firestore and Storage are reached by the Admin SDK, which bypasses
-Security Rules. Denying every client request keeps the public Web API key from
-becoming a data-access key. Deploy the rules with
-`firebase deploy --only firestore:rules,storage`.
+backend. Firestore is reached by the Admin SDK, which bypasses Security Rules.
+Denying every client request keeps the public Web API key from becoming a
+data-access key, and it also protects the `blobs` collection, so a blob id is
+not a capability. Deploy the rules with `firebase deploy --only firestore:rules`.
 
 **Why do I get `403 awaiting approval`?**
 New accounts are pending until an Admin approves them. The
@@ -61,9 +62,15 @@ or remap Compose ports. See
 [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md#ports-already-in-use).
 
 **PDF generation fails locally.**
-DOCX→PDF shells out to headless LibreOffice. It is installed in the Docker
-image; on a workstation install LibreOffice or use the image. DOCX generation
-works without it.
+It no longer exists: documents are Word-only (ADR-006), and a PDF output
+request returns `400`. Open the generated DOCX in Word, LibreOffice, or Google
+Docs and export a PDF from there.
+
+**Can I upload a PDF?**
+Yes. It is converted to DOCX in-process with `pdf2docx` and the converted
+Word file is what gets stored and downloaded; the original filename stays
+visible in `source_file_name`. Scanned PDFs and very large files may exceed
+the 900 KB compressed storage limit and return `413`.
 
 ## Contributing
 
@@ -74,8 +81,9 @@ type per commit), and fill the PR template.
 
 **Do I need Firebase credentials to run the tests?**
 No. `backend/tests/` forces empty Firebase configuration and asserts boot,
-the mounted frontend contract, and pure-Python services. Live Firebase and
-LibreOffice behaviour is a manual checklist (`backend/README.md` §7).
+the mounted frontend contract, and pure-Python services. Live Firebase
+behaviour and real document storage are a manual checklist
+(`backend/README.md` §7).
 
 **Why is there no database container in Compose?**
 Firestore is managed and external. Compose builds only the backend and

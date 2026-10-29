@@ -57,11 +57,12 @@ Be respectful, assume good faith, and keep discussions focused on the work.
 
 - `backend/` — FastAPI + Firebase Admin. Routers are `app/api/auth.py` and
   `app/api/resources.py`; services are `repository.py`, `projections.py`,
-  `rbac.py`, `storage.py`, `drafting.py`, `documents.py`.
+  `rbac.py`, `blobs.py`, `uploads.py`, `drafting.py`, `documents.py`.
 - `frontend/` — React 18 + Vite 6 + TypeScript (`strict`) + Tailwind 3 +
   Firebase JS SDK. Role-guarded routes in `src/App.tsx`.
-- `docker-compose.yml` — backend + frontend images. Firebase (Auth, Firestore,
-  Storage) is external; there is no database container.
+- `docker-compose.yml` — backend + frontend images. Firebase (Auth and
+  Firestore, which also stores the documents) is external; there is no
+  database container and no bucket.
 - `.github/workflows/` — `ci.yml` (backend/frontend/docs-health), `docker.yml`
   (image builds), `codeql.yml` (security scan).
 
@@ -82,7 +83,7 @@ reintroduce SQL, an ORM, migrations, or a second system of record.
 | npm | 10+ | `npm --version` |
 | Git | 2.40+ | `git --version` |
 | Docker + Compose | 24+ / v2 (optional) | `docker --version` |
-| Firebase project | Firestore + Auth (+ Storage for uploads) | See `backend/README.md` §2 |
+| Firebase project | Firestore + Auth | See `backend/README.md` §2 |
 
 Windows contributors: use **Windows PowerShell 5.1+** (commands below assume
 it). macOS/Linux contributors: translate `Copy-Item` → `cp` and venv
@@ -156,7 +157,7 @@ py -3.13 -m venv venv
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 Copy-Item .env.example .env
-# Edit .env: FIREBASE_PROJECT_ID, FIREBASE_STORAGE_BUCKET, BOOTSTRAP_ADMIN_EMAIL
+# Edit .env: FIREBASE_PROJECT_ID, FIRESTORE_DATABASE_ID, BOOTSTRAP_ADMIN_EMAIL
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
@@ -282,9 +283,9 @@ npm run build
 Notes:
 
 - The backend suite is **offline** and needs no Firebase credentials. Live
-  Auth/Firestore/Storage and LibreOffice PDF conversion are manual checks
-  (`backend/README.md` §7). Do not "fix" a red test by deleting it — open an
-  issue instead.
+  Auth/Firestore behaviour, real blob writes, and PDF conversion fidelity are
+  manual checks (`backend/README.md` §7). Do not "fix" a red test by deleting
+  it — open an issue instead.
 - Frontend `npm run build` includes `tsc -b`; a clean build means types pass.
 - Docker-affecting PRs: also run the relevant `docker build` from
   [`docs/DOCKER.md`](./docs/DOCKER.md).
@@ -346,7 +347,8 @@ unfinished.
   same PR.
 - Manual QA checklist for workflow PRs: create team → create patent → fill
   questionnaire → submit → assign agent → accept → generate draft → generate
-  DOCX/PDF → approve user → export report → toggle a permission.
+  DOCX → upload a PDF (arrives as DOCX) → approve user → export report → toggle
+  a permission.
 
 ---
 

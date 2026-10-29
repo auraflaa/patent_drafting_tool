@@ -72,11 +72,12 @@ Current controls (Firebase runtime):
   a single document below Firestore's 1 MiB limit.
 - **Upload validation:** non-empty content, `MAX_UPLOAD_SIZE_BYTES` cap, an
   `ALLOWED_UPLOAD_EXTENSIONS` allowlist, and content sniffing (magic bytes)
-  so a renamed executable cannot pass as a PDF or image. Office containers
-  are checked for the required part and rejected when they exceed the ZIP
-  bomb limits (entry count, entry size, total size, compression ratio, or
-  encryption). The stored MIME type comes from the validated extension, not
-  from the client. Templates are restricted to `.docx`.
+  so a renamed executable cannot pass as a PDF or image. Uploaded PDFs are
+  converted to DOCX and the converted file is re-validated before storage.
+  Office containers are checked for the required part and rejected when they
+  exceed the ZIP bomb limits (entry count, entry size, total size, compression
+  ratio, or encryption). The stored MIME type comes from the validated
+  extension, not from the client. Templates are restricted to `.docx`.
 - **Transport:** CORS allow-list (`CORS_ORIGINS`), trusted hosts
   (`ALLOWED_HOSTS`), HTTPS required in production, HSTS in production only,
   and a strict CSP on API responses (Swagger/ReDoc exempt). The static
@@ -87,8 +88,11 @@ Current controls (Firebase runtime):
   safe client value or a generated hex ID, and application logs are JSON lines
   carrying that ID and the event name.
 - **Storage:** the service-account JSON is mounted/injected at run time and is
-  git-ignored. Blobs are served through the API, not public bucket URLs.
-- **Deployment:** one backend replica, platform-level rate limiting, and a
+  git-ignored. Document bytes live in the `blobs` collection, gzip-compressed
+  with a SHA-256 checksum that is verified on every read; they are served only
+  through authorised API routes, never through public bucket URLs. Firestore
+  rules deny all client access, so a blob id is not a capability.
+- **Deployment:** one backend replica, auth-endpoint rate limiting, and a
   Firestore backup/retention policy (`DEPLOYMENT.md`).
 
 Known limitations (do not rely on these for security):
@@ -96,11 +100,11 @@ Known limitations (do not rely on these for security):
 - Firestore Security Rules **do not** replace backend authorization — the
   Admin SDK bypasses them; all checks live in `app/core/security.py` and
   `app/services/projections.py`.
-- There is **no in-app rate limiter** in the Firebase runtime. Put request
-  limits at the platform edge (PaaS/WAF/Firebase quotas) before exposing the
-  API publicly.
-- The backend assumes a **single instance** (ADR-003); document generation
-  runs in-process and spawns LibreOffice.
+- The in-app rate limiter covers `/api/auth/*` only and keeps its buckets per
+  worker. Put general request limits at the platform edge (PaaS/WAF/Firebase
+  quotas) before exposing the API publicly.
+- The backend assumes a **single instance** (ADR-003); document generation and
+  PDF conversion run in-process.
 - Generated patent text is a **draft, not legal advice**; it must not be filed
   without professional review.
 - Service-account JSON and `.env` files are **never** committed; rotation is

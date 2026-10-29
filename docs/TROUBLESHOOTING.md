@@ -35,15 +35,22 @@ Get-Process -Id <PID>   # confirm it isn't something you need before touching it
 | Symptom | Cause | Fix |
 |---|---|---|
 | `GET /health` → `503 degraded` with Firebase detail | Service-account path wrong, project ID mismatch, or no network | Recheck `FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_PATH`, `secrets/` filename; unset `FIREBASE_EMULATOR_HOST` unless using the emulator |
+| `GET /health` → `503` with "database (default) does not exist" | Firestore not provisioned for the project | Firebase Console → Firestore Database → Create database (Native mode), pick a region, then retry |
+| `GET /health` → `503` with "default credentials were not found" | No service-account file and no ADC | Place the JSON at `backend/secrets/firebase-service-account.json` or set `FIREBASE_SERVICE_ACCOUNT_JSON` |
 | `401` on every API call | Missing/expired Firebase ID token | Re-login; confirm `Authorization: Bearer <token>` is sent (`src/lib/api.ts`) and the token provider is registered |
+| `429` on `/api/auth/sync` or `/api/auth/users/...` across several users | One `scope["client"]` bucket: the proxy address is used because `FORWARDED_ALLOW_IPS` is unset | Set `FORWARDED_ALLOW_IPS` to the proxy (e.g. `*` on Cloud Run) or raise `AUTH_RATE_LIMIT_PER_MINUTE`; `/api/auth/me` is exempt |
+| `503` when opening a named Firestore database | `FIRESTORE_DATABASE_ID` set to a database that does not exist in the project | Create it in the console, or clear the variable to use `(default)` |
+| Firestore rules missing on a named database | `firebase.json` has no `"database"` field, so deploys target `(default)` | Add `"database": "<id>"` under `"firestore"` before `firebase deploy --only firestore:rules` |
 | `403 awaiting approval` | Account is pending | Ask an Admin to approve via Super Admin → Pending Approvals |
 | `422 Unprocessable Entity` | Missing required body field | Compare against `API_OVERVIEW.md` payloads |
 | CORS errors in browser console | Origin not in `CORS_ORIGINS` | Add the exact frontend origin; restart backend |
 | `400` from TrustedHost | Host not in `ALLOWED_HOSTS` | Include `localhost,127.0.0.1` (or the real domain in prod) |
-| Uploads fail | Bucket unset, size cap, or blocked extension | Check `FIREBASE_STORAGE_BUCKET`, `MAX_UPLOAD_SIZE_BYTES`, backend logs (non-prod includes the reason) |
-| Draft returns placeholder text | Expected without `AI_PROVIDER=gemini` + `GEMINI_API_KEY` | Set both; otherwise the stub is the intended behaviour (ADR-004) |
-| PDF generation job fails or the button is hidden | LibreOffice (`soffice`) not installed, or the deployment disables PDF | Use the Docker image or install LibreOffice; set `PDF_CONVERSION_ENABLED=true` only where it exists; DOCX still works |
-| `PERMISSION_DENIED: Missing or insufficient permissions` from a browser script | Expected — direct client access to Firestore/Storage is denied by design | Call the API instead; deploy the checked-in rules with `firebase deploy --only firestore:rules,storage` |
+| Uploads fail | Size cap, an extension outside the allowlist, or the compressed file exceeds 900 KB | Check `MAX_UPLOAD_SIZE_BYTES`, `ALLOWED_UPLOAD_EXTENSIONS`, and backend logs (non-prod includes the reason) |
+| Draft returns placeholder text | Expected without `AI_API_URL` + `AI_API_KEY` | Set both (and `AI_MODEL`); otherwise the stub is the intended behaviour (ADR-004) |
+| `400` "PDF output is no longer supported" | Documents are Word-only | Download the DOCX and export a PDF from a word processor |
+| `400` on a PDF upload | Damaged, encrypted, or over 100 pages | Re-export the PDF without a password, or upload a DOCX |
+| `413` naming a compression limit | The gzip blob cannot fit one Firestore document | Upload a smaller file or split it; the cap is ~900 KB compressed |
+| `PERMISSION_DENIED: Missing or insufficient permissions` from a browser script | Expected — direct client access to Firestore is denied by design | Call the API instead; deploy the checked-in rules with `firebase deploy --only firestore:rules` |
 
 ## Frontend
 
@@ -62,7 +69,7 @@ Get-Process -Id <PID>   # confirm it isn't something you need before touching it
 |---|---|---|
 | Backend container runs but is unhealthy | `/health` returns `503` because Firebase credentials are missing/invalid | Mount `secrets/` and pass `--env-file backend/.env`; the container is serving, just not connected |
 | Frontend shows wrong API URL | `VITE_API_URL` baked at build time | Rebuild with the correct `--build-arg`; runtime `-e` cannot change it |
-| Build is slow (backend) | LibreOffice layer (largest layer, required for DOCX→PDF) | Expected; use BuildKit layer caching (`docker.yml` uses GHA cache) |
+| Build is slow (backend) | `pdf2docx` pulls in PyMuPDF, the largest wheel | Expected; use BuildKit layer caching (`docker.yml` uses GHA cache) |
 | `docker compose up` port conflict | Another backend/frontend on `8000`/`5173` | Set `BACKEND_PORT` / `FRONTEND_PORT`; never stop unrelated containers to win a port |
 | `gunicorn: command not found` on Windows | Gunicorn is POSIX-only | Use `uvicorn --reload` locally; run the Linux image in Docker |
 
