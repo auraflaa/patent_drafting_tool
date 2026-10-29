@@ -37,6 +37,93 @@ USER_EMAILS = (
     "mmanishablr@gmail.com",
 )
 
+# Demo personas. They cannot sign in (the app is Google-only and these are
+# example.com addresses), but they own patents, sit on teams, and appear as
+# inventors/comments so the workflow has real counterparties.
+DEMO_USERS = (
+    {
+        "key": "ananya",
+        "email": "ananya.rao@example.com",
+        "full_name": "Ananya Rao",
+        "role_codes": ["INNOVATOR"],
+        "designation": "Biomedical Engineer",
+        "organization": "Kridhata BioMed",
+    },
+    {
+        "key": "isha",
+        "email": "isha.nair@example.com",
+        "full_name": "Isha Nair",
+        "role_codes": ["INNOVATOR"],
+        "designation": "Clinical Research Lead",
+        "organization": "Kridhata BioMed",
+    },
+    {
+        "key": "vikram",
+        "email": "vikram.shah@example.com",
+        "full_name": "Vikram Shah",
+        "role_codes": ["INNOVATOR"],
+        "designation": "Mechanical Engineer",
+        "organization": "Kridhata Energy",
+    },
+    {
+        "key": "rohan",
+        "email": "rohan.mehta@example.com",
+        "full_name": "Rohan Mehta",
+        "role_codes": ["INNOVATOR"],
+        "designation": "Thermal Systems Engineer",
+        "organization": "Kridhata Energy",
+    },
+    {
+        "key": "sana",
+        "email": "sana.khan@example.com",
+        "full_name": "Sana Khan",
+        "role_codes": ["INNOVATOR"],
+        "designation": "Agronomist",
+        "organization": "Kridhata AgriTech",
+    },
+    {
+        "key": "arjun",
+        "email": "arjun.das@example.com",
+        "full_name": "Arjun Das",
+        "role_codes": ["INNOVATOR"],
+        "designation": "Agricultural Engineer",
+        "organization": "Kridhata AgriTech",
+    },
+    {
+        "key": "dev",
+        "email": "dev.patel@example.com",
+        "full_name": "Dev Patel",
+        "role_codes": ["INNOVATOR"],
+        "designation": "Water Systems Engineer",
+        "organization": "Kridhata Water",
+    },
+    {
+        "key": "neha",
+        "email": "neha.kulkarni@example.com",
+        "full_name": "Neha Kulkarni",
+        "role_codes": ["INNOVATOR"],
+        "designation": "Environmental Engineer",
+        "organization": "Kridhata Water",
+    },
+    {
+        "key": "rahul",
+        "email": "rahul.nair@example.com",
+        "full_name": "Rahul Nair",
+        "role_codes": ["ADMIN"],
+        "designation": "IP Operations Manager",
+        "organization": "Kridhata Ventures",
+    },
+    {
+        "key": "kavya",
+        "email": "kavya.menon@example.com",
+        "full_name": "Kavya Menon",
+        "role_codes": ["INNOVATOR"],
+        "designation": "Product Designer",
+        "organization": "Kridhata Ventures",
+        "account_status": "pending",
+    },
+)
+
 # Collections that can contain seeded documents. Teams carry a `members`
 # subcollection, which is deleted with its parent.
 SEEDED_COLLECTIONS = (
@@ -57,19 +144,46 @@ SEEDED_COLLECTIONS = (
     "assignment_history",
     "blobs",
     "teams",
+    "users",
 )
 
 TEAMS = (
-    {"key": "energy", "name": "Aero & Energy Labs"},
-    {"key": "biomed", "name": "BioMed Devices"},
-    {"key": "agri", "name": "AgriTech Collective"},
-    {"key": "water", "name": "Water & Sanitation"},
+    {
+        "key": "energy",
+        "name": "Aero & Energy Labs",
+        "members": (
+            "vikram.shah@example.com",
+            "rohan.mehta@example.com",
+        ),
+    },
+    {
+        "key": "biomed",
+        "name": "BioMed Devices",
+        "members": (
+            "ananya.rao@example.com",
+            "isha.nair@example.com",
+        ),
+    },
+    {
+        "key": "agri",
+        "name": "AgriTech Collective",
+        "members": (
+            "sana.khan@example.com",
+            "arjun.das@example.com",
+        ),
+    },
+    {
+        "key": "water",
+        "name": "Water & Sanitation",
+        "members": (
+            "dev.patel@example.com",
+            "neha.kulkarni@example.com",
+        ),
+    },
     # Aura's own lab: only mmanishablr is a member, so this portfolio is
     # distinct from the shared teams above (a Super Admin still sees it all).
     {"key": "aura", "name": "Aura Health Labs", "members": ("mmanishablr@gmail.com",)},
 )
-
-TEAM_MEMBERS = ("priyangshumukherjee07@gmail.com", "mmanishablr@gmail.com")
 
 PATENTS = (
     {
@@ -77,8 +191,9 @@ PATENTS = (
         "title": "Adaptive Solar Cooker with Phase-Change Thermal Storage",
         "status": "Draft",
         "team": "energy",
-        "owner": "priyangshumukherjee07@gmail.com",
+        "owner": "vikram.shah@example.com",
         "agent": None,
+        "inventors": ("vikram.shah@example.com", "rohan.mehta@example.com"),
         "questionnaire": "in_progress",
         "created_days_ago": 1,
         "details": {
@@ -114,8 +229,9 @@ PATENTS = (
         "title": "Modular Hydroponic Tower for Urban Farms",
         "status": "Draft",
         "team": "agri",
-        "owner": "mmanishablr@gmail.com",
+        "owner": "sana.khan@example.com",
         "agent": None,
+        "inventors": ("sana.khan@example.com", "arjun.das@example.com"),
         "questionnaire": "in_progress",
         "created_days_ago": 2,
         "details": {
@@ -138,10 +254,11 @@ PATENTS = (
     {
         "key": "ecg-patch",
         "title": "Wearable ECG Patch with Dry Graphene Electrodes",
-        "status": "Submitted",
+        "status": "Awaiting Patent Agent Acceptance",
         "team": "biomed",
-        "owner": "mmanishablr@gmail.com",
-        "agent": None,
+        "owner": "ananya.rao@example.com",
+        "agent": "mmanishablr@gmail.com",
+        "inventors": ("ananya.rao@example.com", "isha.nair@example.com"),
         "questionnaire": "completed",
         "created_days_ago": 4,
         "details": {
@@ -180,8 +297,9 @@ PATENTS = (
         "title": "Self-Cleaning Gravity Water Filter for Rural Households",
         "status": "Awaiting Patent Agent Acceptance",
         "team": "water",
-        "owner": "priyangshumukherjee07@gmail.com",
+        "owner": "dev.patel@example.com",
         "agent": "mmanishablr@gmail.com",
+        "inventors": ("dev.patel@example.com", "neha.kulkarni@example.com"),
         "questionnaire": "completed",
         "created_days_ago": 6,
         "details": {
@@ -220,8 +338,9 @@ PATENTS = (
         "title": "Low-Cost Prosthetic Knee with Adjustable Hydraulic Damping",
         "status": "Under Review",
         "team": "biomed",
-        "owner": "mmanishablr@gmail.com",
+        "owner": "ananya.rao@example.com",
         "agent": "mmanishablr@gmail.com",
+        "inventors": ("ananya.rao@example.com", "isha.nair@example.com"),
         "questionnaire": "completed",
         "created_days_ago": 9,
         "details": {
@@ -258,7 +377,7 @@ PATENTS = (
         },
         "comments": (
             ("mmanishablr@gmail.com", "The cam profile needs a dimensioned drawing before this can move to drafting."),
-            ("priyangshumukherjee07@gmail.com", "Agreed. I will add the stance-phase angles and the seal durometer."),
+            ("ananya.rao@example.com", "Agreed. I will add the stance-phase angles and the seal durometer."),
         ),
     },
     {
@@ -266,8 +385,9 @@ PATENTS = (
         "title": "Biodegradable Cutlery from Millet Husk Composite",
         "status": "Changes Requested",
         "team": "agri",
-        "owner": "priyangshumukherjee07@gmail.com",
+        "owner": "sana.khan@example.com",
         "agent": "mmanishablr@gmail.com",
+        "inventors": ("sana.khan@example.com", "arjun.das@example.com"),
         "questionnaire": "completed",
         "created_days_ago": 12,
         "details": {
@@ -301,7 +421,7 @@ PATENTS = (
         },
         "comments": (
             ("mmanishablr@gmail.com", "Please add the fibre aspect ratio and the press cycle to the technical description."),
-            ("priyangshumukherjee07@gmail.com", "Will add measured ratios from the pilot batch; the claims should mention the two-fraction mix."),
+            ("sana.khan@example.com", "Will add measured ratios from the pilot batch; the claims should mention the two-fraction mix."),
             ("mmanishablr@gmail.com", "Also confirm the 90-day degradation figure comes from a standard test, not an internal trial."),
         ),
     },
@@ -310,8 +430,9 @@ PATENTS = (
         "title": "Smart Insulin Cooler for Last-Mile Delivery",
         "status": "Draft Generated",
         "team": "biomed",
-        "owner": "mmanishablr@gmail.com",
+        "owner": "ananya.rao@example.com",
         "agent": "mmanishablr@gmail.com",
+        "inventors": ("ananya.rao@example.com",),
         "questionnaire": "completed",
         "created_days_ago": 15,
         "drafts": True,
@@ -405,8 +526,9 @@ PATENTS = (
         "title": "Solar-Powered Cold Chain Box for Vaccine Transport",
         "status": "Ready for Filing",
         "team": "energy",
-        "owner": "priyangshumukherjee07@gmail.com",
+        "owner": "vikram.shah@example.com",
         "agent": "mmanishablr@gmail.com",
+        "inventors": ("vikram.shah@example.com", "rohan.mehta@example.com"),
         "questionnaire": "completed",
         "created_days_ago": 18,
         "drafts": True,
@@ -496,8 +618,9 @@ PATENTS = (
         "title": "AI-Assisted Pest Detection Trap for Small Farms",
         "status": "Filed",
         "team": "agri",
-        "owner": "mmanishablr@gmail.com",
+        "owner": "sana.khan@example.com",
         "agent": "mmanishablr@gmail.com",
+        "inventors": ("sana.khan@example.com",),
         "questionnaire": "completed",
         "created_days_ago": 24,
         "drafts": True,
@@ -590,8 +713,9 @@ PATENTS = (
         "title": "Acoustic Leak Detector for Buried Water Pipelines",
         "status": "Hearing Scheduled",
         "team": "water",
-        "owner": "priyangshumukherjee07@gmail.com",
+        "owner": "dev.patel@example.com",
         "agent": "mmanishablr@gmail.com",
+        "inventors": ("dev.patel@example.com",),
         "questionnaire": "completed",
         "created_days_ago": 30,
         "document": False,
@@ -640,8 +764,9 @@ PATENTS = (
         "title": "Waterless Sanitation Unit for Arid Regions",
         "status": "Granted",
         "team": "water",
-        "owner": "mmanishablr@gmail.com",
+        "owner": "dev.patel@example.com",
         "agent": "mmanishablr@gmail.com",
+        "inventors": ("dev.patel@example.com", "neha.kulkarni@example.com"),
         "questionnaire": "completed",
         "created_days_ago": 400,
         "filing": {
@@ -684,8 +809,9 @@ PATENTS = (
         "title": "Retractable Solar Awning for City Buses",
         "status": "Abandoned",
         "team": "energy",
-        "owner": "priyangshumukherjee07@gmail.com",
+        "owner": "vikram.shah@example.com",
         "agent": None,
+        "inventors": ("vikram.shah@example.com",),
         "questionnaire": "completed",
         "created_days_ago": 60,
         "details": {
@@ -1212,22 +1338,199 @@ PATENTS = (
             "has_existing_drawings": False,
         },
     },
+    {
+        "key": "solar-dryer",
+        "title": "Solar Tunnel Dryer with Recirculating Air for Smallholder Farms",
+        "status": "Submitted",
+        "team": "agri",
+        "owner": "sana.khan@example.com",
+        "agent": None,
+        "inventors": ("sana.khan@example.com", "arjun.das@example.com"),
+        "questionnaire": "completed",
+        "created_days_ago": 3,
+        "details": {
+            "invention_type": "Mechanical",
+            "problem_statement": (
+                "Open-sun drying loses a harvest to rain and dust, and smallholders "
+                "cannot justify a powered dehydrator."
+            ),
+            "proposed_solution": (
+                "A plastic tunnel with a black absorber floor and a recirculating fan "
+                "holds 55 degrees Celsius using a 10 W panel."
+            ),
+            "novelty_description": (
+                "A flap at the tunnel exit recirculates part of the exhaust air, which "
+                "raises the drying temperature on cloudy afternoons without a second "
+                "heater."
+            ),
+            "technical_description": (
+                "The tunnel is 6 m long with a clear polycarbonate cover and a black "
+                "sand floor. A thermostat opens the recirculation flap when the exit "
+                "air is below 45 degrees, and a 10 W fan runs from a panel."
+            ),
+            "advantages": (
+                "Dries 200 kg of produce in a day, keeps rain and dust off the crop, "
+                "and costs less than a powered dryer."
+            ),
+            "prior_art": (
+                "Solar tunnel dryers vent all exhaust air, so temperature falls as "
+                "soon as the sun dims."
+            ),
+            "keywords": "solar dryer, recirculation, smallholder, food preservation",
+            "has_existing_drawings": True,
+        },
+    },
+    {
+        "key": "tremor-band",
+        "title": "Wrist Band with Adaptive Tremor Cancellation",
+        "status": "Awaiting Patent Agent Acceptance",
+        "team": "biomed",
+        "owner": "ananya.rao@example.com",
+        "agent": "mmanishablr@gmail.com",
+        "inventors": ("ananya.rao@example.com", "isha.nair@example.com"),
+        "questionnaire": "completed",
+        "created_days_ago": 2,
+        "details": {
+            "invention_type": "Electronics",
+            "problem_statement": (
+                "Essential-tremor patients cannot hold a cup or a pen steadily, and "
+                "medication helps only part of the day."
+            ),
+            "proposed_solution": (
+                "A wrist band senses tremor with an IMU and drives a small reaction "
+                "mass out of phase to cancel the movement at the hand."
+            ),
+            "novelty_description": (
+                "The controller estimates the tremor frequency from the last two "
+                "seconds of motion and adapts the reaction-mass phase continuously, "
+                "so it tracks a changing tremor instead of using a fixed filter."
+            ),
+            "technical_description": (
+                "A six-axis IMU samples at 200 Hz. A linear resonant actuator moves a "
+                "40 g mass along two axes, driven by a phase-locked loop that mirrors "
+                "the measured tremor."
+            ),
+            "advantages": (
+                "Reduces hand displacement by about 70 percent, weighs 90 g, and needs "
+                "no calibration visit."
+            ),
+            "prior_art": (
+                "Tremor-suppression devices use fixed-frequency counter-motion or "
+                "viscous dampers that cannot follow a changing tremor."
+            ),
+            "keywords": "tremor, wearable, active damping, IMU",
+            "has_existing_drawings": True,
+        },
+    },
+    {
+        "key": "greywater",
+        "title": "Greywater Recycling Unit with Membrane Bioreactor",
+        "status": "Under Review",
+        "team": "water",
+        "owner": "dev.patel@example.com",
+        "agent": "mmanishablr@gmail.com",
+        "inventors": ("dev.patel@example.com", "neha.kulkarni@example.com"),
+        "questionnaire": "completed",
+        "created_days_ago": 7,
+        "details": {
+            "invention_type": "Chemical",
+            "problem_statement": (
+                "Apartment buildings drain shower and laundry water to the sewer while "
+                "using potable water for flushing and landscaping."
+            ),
+            "proposed_solution": (
+                "A compact membrane bioreactor treats greywater to non-potable quality "
+                "and stores it for toilet flushing and irrigation."
+            ),
+            "novelty_description": (
+                "The membrane is backwashed with treated water on a pressure signal "
+                "rather than a timer, which extends the cleaning interval in buildings "
+                "with irregular occupancy."
+            ),
+            "technical_description": (
+                "Greywater passes a screen and an aerated bioreactor, then a hollow-fibre "
+                "ultrafiltration membrane. Permeate is chlorinated and stored in a "
+                "300 litre tank. Backwash triggers on transmembrane pressure."
+            ),
+            "advantages": (
+                "Cuts potable water use by 30 percent, fits in a 1.5 square metre "
+                "utility room, and needs service twice a year."
+            ),
+            "prior_art": (
+                "Greywater systems use sand filters or timer-based membrane backwash, "
+                "which foul between service visits."
+            ),
+            "keywords": "greywater, membrane bioreactor, water reuse, backwash",
+            "has_existing_drawings": True,
+        },
+        "comments": (
+            (
+                "mmanishablr@gmail.com",
+                "Please confirm the membrane pore size and the chlorine dose before I "
+                "start the prior-art search.",
+            ),
+            (
+                "dev.patel@example.com",
+                "Pore size is 0.03 micron and the dose is 0.5 mg per litre; I will add "
+                "the pressure-trigger setpoint.",
+            ),
+        ),
+    },
 )
 
-APPLICANTS = (
-    {
-        "full_name_or_org_name": "Kridhata Ventures Private Limited",
+APPLICANTS_BY_TEAM = {
+    "energy": {
+        "full_name_or_org_name": "Kridhata Energy Private Limited",
+        "applicant_type": "Organization",
+        "address": "14, Indiranagar 100 Feet Road, Bengaluru 560038",
+        "country": "India",
+        "postal_code": "560038",
+        "email": "ip@kridhata-energy.example",
+        "phone": "+91 80 4123 8800",
+    },
+    "biomed": {
+        "full_name_or_org_name": "Kridhata BioMed Private Limited",
+        "applicant_type": "Organization",
+        "address": "6, Whitefield Main Road, Bengaluru 560066",
+        "country": "India",
+        "postal_code": "560066",
+        "email": "ip@kridhata-biomed.example",
+        "phone": "+91 80 4123 8801",
+    },
+    "agri": {
+        "full_name_or_org_name": "Kridhata AgriTech Private Limited",
+        "applicant_type": "Organization",
+        "address": "31, Yeshwanthpur Industrial Area, Bengaluru 560022",
+        "country": "India",
+        "postal_code": "560022",
+        "email": "ip@kridhata-agritech.example",
+        "phone": "+91 80 4123 8802",
+    },
+    "water": {
+        "full_name_or_org_name": "Kridhata Water Private Limited",
+        "applicant_type": "Organization",
+        "address": "8, Hebbal Ring Road, Bengaluru 560024",
+        "country": "India",
+        "postal_code": "560024",
+        "email": "ip@kridhata-water.example",
+        "phone": "+91 80 4123 8803",
+    },
+    "aura": {
+        "full_name_or_org_name": "Aura Health Labs Private Limited",
         "applicant_type": "Organization",
         "address": "22, 4th Cross, Jayanagar, Bengaluru 560041",
         "country": "India",
         "postal_code": "560041",
+        "email": "ip@aurahealth.example",
+        "phone": "+91 80 4123 8804",
     },
-)
+}
 
 INVENTOR_NAMES = {
     "priyangshumukherjee07@gmail.com": "Priyangshu Mukherjee",
     "mmanishablr@gmail.com": "Aura Fla",
 }
+INVENTOR_NAMES.update({user["email"]: user["full_name"] for user in DEMO_USERS})
 
 
 def _iso(moment: datetime) -> str:
@@ -1249,6 +1552,7 @@ def _put(collection: str, doc_id: str, data: dict) -> bool:
 
 
 def load_users() -> dict[str, dict]:
+    """Load the two real accounts. They must have signed in at least once."""
     users: dict[str, dict] = {}
     for email in USER_EMAILS:
         matches = [
@@ -1265,22 +1569,58 @@ def load_users() -> dict[str, dict]:
     return users
 
 
+def seed_users(users: dict[str, dict]) -> dict[str, dict]:
+    """Create the data-only demo personas and return every email -> profile."""
+    for demo in DEMO_USERS:
+        doc_id = f"demo-user-{demo['key']}"
+        _put(
+            "users",
+            doc_id,
+            {
+                "email": demo["email"],
+                "full_name": demo["full_name"],
+                "profile_picture": None,
+                "phone_number": None,
+                "designation": demo.get("designation"),
+                "organization": demo.get("organization"),
+                "bio": None,
+                "role_codes": list(demo["role_codes"]),
+                "account_status": demo.get("account_status", "approved"),
+                "is_active": True,
+                "email_verified": True,
+                "last_login_at": None,
+                "created_at": _days_ago(120),
+                "updated_at": _days_ago(30),
+            },
+        )
+        users[demo["email"]] = {
+            "id": doc_id,
+            "email": demo["email"],
+            "full_name": demo["full_name"],
+            "role_codes": list(demo["role_codes"]),
+            "account_status": demo.get("account_status", "approved"),
+        }
+    return users
+
+
 def seed_teams(users: dict[str, dict]) -> dict[str, str]:
     team_ids: dict[str, str] = {}
     for team in TEAMS:
         doc_id = f"demo-team-{team['key']}"
         team_ids[team["key"]] = doc_id
+        owner_email = team["members"][0]
+        owner_id = users[owner_email]["id"]
         _put(
             "teams",
             doc_id,
             {
                 "team_name": team["name"],
                 "team_status": "Active",
-                "created_by": users[USER_EMAILS[0]]["id"],
+                "created_by": owner_id,
                 "created_at": _days_ago(90),
             },
         )
-        for email in team.get("members", TEAM_MEMBERS):
+        for email in team["members"]:
             member_id = users[email]["id"]
             db().collection("teams").document(doc_id).collection("members").document(
                 member_id
@@ -1288,7 +1628,7 @@ def seed_teams(users: dict[str, dict]) -> dict[str, str]:
                 {
                     "user_id": member_id,
                     "membership_status": "Active",
-                    "added_by": users[USER_EMAILS[0]]["id"],
+                    "added_by": owner_id,
                     "created_at": _days_ago(90),
                     "demo_seed": SEED_TAG,
                 },
@@ -1384,7 +1724,7 @@ def seed_questionnaires(
 
 def seed_parties(users: dict[str, dict], patents: dict[str, dict]) -> None:
     for key, patent in patents.items():
-        applicant = APPLICANTS[0]
+        applicant = APPLICANTS_BY_TEAM[patent["team"]]
         _put(
             "applicants",
             f"demo-applicant-{key}-1",
@@ -1395,16 +1735,13 @@ def seed_parties(users: dict[str, dict], patents: dict[str, dict]) -> None:
                 "address": applicant["address"],
                 "country": applicant["country"],
                 "postal_code": applicant["postal_code"],
-                "email": "ip@kridhata.example",
-                "phone": "+91 80 4000 0000",
+                "email": applicant["email"],
+                "phone": applicant["phone"],
                 "is_primary": True,
                 "display_order": 0,
             },
         )
-        owner_email = patent["owner"]
-        inventor_emails = [owner_email]
-        if patent.get("agent") and patent["agent"] != owner_email:
-            inventor_emails.append(patent["agent"])
+        inventor_emails = patent.get("inventors") or (patent["owner"],)
         for order, email in enumerate(inventor_emails):
             _put(
                 "inventors",
@@ -1686,8 +2023,8 @@ def seed_collaboration(users: dict[str, dict], patents: dict[str, dict]) -> None
                     )
                 )
 
-    # An admin-visible submission notification and one reassignment history row
-    # so the audit views are not empty for the Super Admin account.
+    # Admin-visible submission notifications so the audit views are not empty
+    # for the Super Admin account.
     admin_id = users[USER_EMAILS[0]]["id"]
     notifications.append(
         (admin_id, patents["ecg-patch"]["id"], "Submitted", False, _days_ago(3.5))
@@ -1695,17 +2032,6 @@ def seed_collaboration(users: dict[str, dict], patents: dict[str, dict]) -> None
     notifications.append(
         (admin_id, patents["solar-cooker"]["id"], "CommentAdded", True, _days_ago(1))
     )
-    if patents["millet-cutlery"].get("agent"):
-        assignments.append(
-            (
-                patents["millet-cutlery"]["id"],
-                users[patents["millet-cutlery"]["agent"]]["id"],
-                users[patents["millet-cutlery"]["agent"]]["id"],
-                "Reassigned to balance workload",
-                admin_id,
-                _days_ago(10),
-            )
-        )
 
     # IDs are derived from the record content, not a running index: adding a
     # patent later must not renumber (and therefore skip or overwrite) the
@@ -1791,7 +2117,7 @@ def reset() -> int:
 
 
 def seed() -> None:
-    users = load_users()
+    users = seed_users(load_users())
     team_ids = seed_teams(users)
     patents = seed_patents(users, team_ids)
     seed_questionnaires(users, patents)
@@ -1799,7 +2125,10 @@ def seed() -> None:
     seed_drafts(users, patents)
     seed_documents(users, patents)
     seed_collaboration(users, patents)
-    print(f"Seeded {len(patents)} patents across {len(team_ids)} teams.")
+    print(
+        f"Seeded {len(patents)} patents across {len(team_ids)} teams "
+        f"and {len(DEMO_USERS)} demo users."
+    )
     print("Open the app and sign in as either account to see the data.")
 
 

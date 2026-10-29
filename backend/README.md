@@ -159,18 +159,30 @@ a real Firebase project before shipping.
 ## 8. Demo data (development only)
 
 `scripts/seed_demo.py` fills an empty-looking database with a realistic data
-set: 5 teams and 20 patents spanning the whole lifecycle (Draft → Submitted →
-Under Review → Draft Generated → Ready for Filing → Filed → Examination
-Requested → FER Received → Hearing Scheduled → Granted, plus Changes
-Requested, Rejected, Withdrawn, and Abandoned), questionnaires and versions,
-applicants and inventors, AI draft sections, six real DOCX documents with
-their `blobs`, comments, calendar events, notifications, activity, and
-assignment history.
+set: 5 teams, 10 demo users, and 23 patents spanning the whole lifecycle
+(Draft → Submitted → Under Review → Draft Generated → Ready for Filing →
+Filed → Examination Requested → FER Received → Hearing Scheduled → Granted,
+plus Changes Requested, Rejected, Withdrawn, and Abandoned), questionnaires
+and versions, applicants and inventors, AI draft sections, six real DOCX
+documents with their `blobs`, comments, calendar events, notifications,
+activity, and assignment history.
+
+The 10 demo users are **data only**: they are `@example.com` profiles that
+cannot sign in (the app is Google-only), but they own patents, sit on teams,
+appear as inventors, and write comments. Every patent has an owner, one or two
+inventors, and a team-specific applicant organisation (Kridhata Energy,
+BioMed, AgriTech, Water, or Aura Health Labs). Four patents are left in
+**Awaiting Patent Agent Acceptance** with `mmanishablr@gmail.com` as the
+assigned agent, so the Patent Agent dashboard always has decisions to make;
+`mmanishablr` is the only seeded Patent Agent, which keeps every pending
+assignment actionable. `rahul.nair@example.com` is a second ADMIN for audit
+views, and `kavya.menon@example.com` is left pending so the approval queue is
+not empty.
 
 Four teams are shared by both accounts. **Aura Health Labs** is seeded for
-`mmanishablr@gmail.com` only, with eight additional patents that fill the
-stages its shared view does not cover — so that account has its own portfolio
-to exercise separately from the Super Admin's.
+`mmanishablr@gmail.com` only, with eight patents that fill the stages its
+shared view does not cover — so that account has its own portfolio to exercise
+separately from the Super Admin's.
 
 ```powershell
 # From backend/, with the venv active and .env pointing at the project
