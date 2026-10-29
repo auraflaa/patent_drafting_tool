@@ -1074,6 +1074,68 @@ def test_submit_patent_accepts_a_completed_questionnaire(
     assert result["application_status"] == "Submitted"
 
 
+def test_assign_rejects_an_application_already_awaiting_acceptance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only admins may move an already-assigned application (via /reassign)."""
+    from app.api import resources
+
+    patent = {
+        "id": "p1",
+        "created_by": "u1",
+        "application_status": "Awaiting Patent Agent Acceptance",
+        "assigned_patent_agent_id": "agent-1",
+    }
+    monkeypatch.setattr(resources, "require_patent", lambda *args: patent)
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+
+    with pytest.raises(HTTPException) as exc:
+        resources.assign_agent(
+            "p1",
+            {"patent_agent_id": "agent-2"},
+            {"uid": "u1", "role_codes": ["INNOVATOR"]},
+        )
+
+    assert exc.value.status_code == 400
+
+
+def test_assign_records_the_initial_assignment_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import resources
+
+    patent = {
+        "id": "p1",
+        "created_by": "u1",
+        "application_status": "Submitted",
+        "assigned_patent_agent_id": None,
+    }
+    recorded: list[tuple] = []
+    monkeypatch.setattr(resources, "require_patent", lambda *args: patent)
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(resources, "_agent_or_404", lambda *args: {"id": "agent-2"})
+    monkeypatch.setattr(
+        resources,
+        "_set_patent",
+        lambda *args: {**patent, "application_status": "Awaiting Patent Agent Acceptance"},
+    )
+    monkeypatch.setattr(
+        resources,
+        "_record_assignment",
+        lambda *args: recorded.append(args),
+    )
+    monkeypatch.setattr(resources, "notify_many", lambda *args, **kwargs: None)
+    monkeypatch.setattr(resources, "log_activity", lambda *args: None)
+
+    resources.assign_agent(
+        "p1",
+        {"patent_agent_id": "agent-2"},
+        {"uid": "u1", "role_codes": ["INNOVATOR"]},
+    )
+
+    assert recorded == [("p1", None, "agent-2", "Initial assignment", "u1")]
+
+
 def test_production_warns_when_allowed_hosts_is_wildcard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -205,6 +205,9 @@ def _parse_iso(value: str) -> str:
 # USPTO titles are capped at 500 characters (37 CFR 1.72(a)); this is a
 # little above typical drafting guidance and still far below a Firestore doc.
 MAX_TITLE_CHARS = 500
+# Reassignment and rejection reasons are free text; keep them well below the
+# Firestore document limit like every other user-supplied string.
+MAX_REASON_CHARS = 2_000
 APPLICANT_TEXT_LIMITS = {
     "full_name_or_org_name": 200,
     "address": 500,
@@ -619,6 +622,26 @@ def submit_patent(patent_id: str, user: dict = Depends(active_user)):
     return patent_out(updated)
 
 
+def _record_assignment(
+    patent_id: str,
+    previous: str | None,
+    agent_id: str,
+    reason: str,
+    changed_by: str,
+) -> None:
+    """Append the audit row every assignment change must leave behind."""
+    create_doc(
+        "assignment_history",
+        {
+            "patent_application_id": patent_id,
+            "from_agent_id": previous,
+            "to_agent_id": agent_id,
+            "reason": reason,
+            "changed_by": changed_by,
+        },
+    )
+
+
 @router.post("/patents/{patent_id}/assign")
 def assign_agent(patent_id: str, payload: dict, user: dict = Depends(active_user)):
     ensure_permission(user, "PATENTS_ASSIGN")
@@ -627,13 +650,11 @@ def assign_agent(patent_id: str, payload: dict, user: dict = Depends(active_user
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Only the application owner can assign an agent."
         )
-    if patent.get("application_status") not in {
-        "Submitted",
-        "Awaiting Patent Agent Acceptance",
-    }:
+    if patent.get("application_status") != "Submitted":
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "An agent can only be assigned after submission and before acceptance.",
+            "An agent can only be assigned to a submitted application that has "
+            "not been accepted yet.",
         )
     agent_id = payload.get("patent_agent_id")
     if not agent_id:
@@ -641,12 +662,16 @@ def assign_agent(patent_id: str, payload: dict, user: dict = Depends(active_user
             status.HTTP_400_BAD_REQUEST, "patent_agent_id is required."
         )
     _agent_or_404(str(agent_id))
+    previous = patent.get("assigned_patent_agent_id")
     updated = _set_patent(
         patent_id,
         {
             "assigned_patent_agent_id": str(agent_id),
             "application_status": "Awaiting Patent Agent Acceptance",
         },
+    )
+    _record_assignment(
+        patent_id, previous, str(agent_id), "Initial assignment", user["uid"]
     )
     notify_many({str(agent_id)}, patent_id, "Assigned")
     log_activity(user["uid"], "AgentAssigned", "PatentApplication", patent_id)
@@ -661,13 +686,11 @@ def auto_assign_agent(patent_id: str, user: dict = Depends(active_user)):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Only the application owner can assign an agent."
         )
-    if patent.get("application_status") not in {
-        "Submitted",
-        "Awaiting Patent Agent Acceptance",
-    }:
+    if patent.get("application_status") != "Submitted":
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "An agent can only be assigned after submission and before acceptance.",
+            "An agent can only be assigned to a submitted application that has "
+            "not been accepted yet.",
         )
     agents = _available_agents()
     if not agents:
@@ -675,12 +698,16 @@ def auto_assign_agent(patent_id: str, user: dict = Depends(active_user)):
             status.HTTP_400_BAD_REQUEST, "No approved Patent Agents are available."
         )
     agent_id = agents[0]["id"]
+    previous = patent.get("assigned_patent_agent_id")
     updated = _set_patent(
         patent_id,
         {
             "assigned_patent_agent_id": agent_id,
             "application_status": "Awaiting Patent Agent Acceptance",
         },
+    )
+    _record_assignment(
+        patent_id, previous, agent_id, "Auto-assignment", user["uid"]
     )
     notify_many({agent_id}, patent_id, "Assigned")
     log_activity(user["uid"], "AgentAutoAssigned", "PatentApplication", patent_id)
@@ -700,7 +727,7 @@ def reassign_agent(patent_id: str, payload: dict, user: dict = Depends(active_us
             "This application is not in a reassignable state.",
         )
     agent_id = payload.get("patent_agent_id")
-    reason = (payload.get("reason") or "").strip()
+    reason = _bounded_text(payload.get("reason"), "reason", MAX_REASON_CHARS)
     if not agent_id:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "patent_agent_id is required."
@@ -718,16 +745,7 @@ def reassign_agent(patent_id: str, payload: dict, user: dict = Depends(active_us
             "application_status": "Awaiting Patent Agent Acceptance",
         },
     )
-    create_doc(
-        "assignment_history",
-        {
-            "patent_application_id": patent_id,
-            "from_agent_id": previous,
-            "to_agent_id": str(agent_id),
-            "reason": reason,
-            "changed_by": user["uid"],
-        },
-    )
+    _record_assignment(patent_id, previous, str(agent_id), reason, user["uid"])
     notify_many({str(agent_id)}, patent_id, "Assigned")
     if previous:
         notify_many({str(previous)}, patent_id, "Reassigned")
@@ -773,15 +791,13 @@ def reject_assignment(
             "application_status": "Submitted",
         },
     )
-    create_doc(
-        "assignment_history",
-        {
-            "patent_application_id": patent_id,
-            "from_agent_id": user["uid"],
-            "to_agent_id": None,
-            "reason": (payload.get("reason") or "").strip() or "Declined by agent",
-            "changed_by": user["uid"],
-        },
+    reason = _bounded_text(payload.get("reason"), "reason", MAX_REASON_CHARS)
+    _record_assignment(
+        patent_id,
+        user["uid"],
+        None,
+        reason or "Declined by agent",
+        user["uid"],
     )
     notify_many({str(patent.get("created_by"))}, patent_id, "Rejected")
     log_activity(user["uid"], "AssignmentRejected", "PatentApplication", patent_id)
