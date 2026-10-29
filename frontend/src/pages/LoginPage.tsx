@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { ROLE_HOME } from "../lib/types";
+import { homePathFor } from "../lib/roles";
 
 const SIGN_IN_ERROR_MESSAGES: Record<string, string> = {
   "auth/popup-blocked":
@@ -26,8 +26,7 @@ export default function LoginPage() {
   // Pending accounts (awaiting admin approval) go to the pending-approval page.
   useEffect(() => {
     if (status === "approved" && user) {
-      const home = user.roles.map((role) => ROLE_HOME[role]).find(Boolean) || "/";
-      navigate(home, { replace: true });
+      navigate(homePathFor(user.roles), { replace: true });
     } else if (status === "pending") {
       navigate("/pending-approval", { replace: true });
     }

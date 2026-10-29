@@ -4,9 +4,12 @@ import { DashboardShell } from "../components/DashboardShell";
 import { DocumentGenerationPanel } from "../components/DocumentGenerationPanel";
 import { CollaborationPanel } from "../components/CollaborationPanel";
 import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { StatusBadge } from "../components/StatusBadge";
 import { BasicInfoTab, QuestionnaireTab } from "../components/PatentDetailTabs";
 import { apiFetch } from "../lib/api";
+import { homePathFor } from "../lib/roles";
+import { useAuth } from "../context/AuthContext";
 import {
   SECTION_LABELS,
   SECTION_TYPES,
@@ -21,6 +24,7 @@ type Tab = "drafting" | "basic-info" | "questionnaire" | "collaboration";
 export default function DraftWorkspacePage() {
   const { id } = useParams<{ id: string }>();
   const patentId = id ?? "";
+  const { user } = useAuth();
 
   const [patent, setPatent] = useState<PatentOut | null>(null);
   const [slots, setSlots] = useState<DraftSectionSlot[] | null>(null);
@@ -66,7 +70,10 @@ export default function DraftWorkspacePage() {
         method: "POST",
         body: JSON.stringify({}),
       });
-      await loadDraft();
+      // New versions invalidate the cached history, and the batch updates
+      // ai_status on the patent.
+      setVersions({});
+      await Promise.all([loadDraft(), loadPatent()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate draft");
     } finally {
@@ -82,7 +89,8 @@ export default function DraftWorkspacePage() {
         method: "POST",
         body: JSON.stringify({ section_types: [section] }),
       });
-      await loadDraft();
+      setVersions({});
+      await Promise.all([loadDraft(), loadPatent()]);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to regenerate section",
@@ -116,7 +124,13 @@ export default function DraftWorkspacePage() {
     return (
       <DashboardShell title="AI Drafting">
         {error ? (
-          <p className="text-sm text-red-600">{error}</p>
+          <ErrorState
+            message={error}
+            onRetry={() => {
+              loadPatent();
+              loadDraft();
+            }}
+          />
         ) : (
           <LoadingState />
         )}
@@ -131,7 +145,10 @@ export default function DraftWorkspacePage() {
     <DashboardShell title="AI Drafting">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <Link to="/agent" className="text-xs text-slate-400 hover:underline">
+          <Link
+            to={homePathFor(user?.roles)}
+            className="text-xs text-slate-400 hover:underline"
+          >
             ← Back to dashboard
           </Link>
           <h2 className="mt-1 text-xl font-semibold text-slate-900">
@@ -298,6 +315,7 @@ export default function DraftWorkspacePage() {
                 slots.find((s) => s.section_type === section)?.latest
                   ?.processing_status === "Completed",
             )}
+            onChanged={loadPatent}
           />
         </>
       )}

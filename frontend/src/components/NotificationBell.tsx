@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { apiFetch } from "../lib/api";
-import { NOTIFICATION_TEXT, ROLE_HOME, type NotificationOut } from "../lib/types";
+import { NOTIFICATION_TEXT, type NotificationOut } from "../lib/types";
+import { patentPathFor } from "../lib/roles";
 
 function timeAgo(iso: string): string {
   const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -78,15 +79,7 @@ export function NotificationBell() {
     }
     setOpen(false);
     if (n.patent_application_id) {
-      const homeRole = user?.roles[0];
-      const base = homeRole ? ROLE_HOME[homeRole] : "/";
-      const path =
-        homeRole === "INNOVATOR"
-          ? `/innovator/patents/${n.patent_application_id}`
-          : homeRole === "PATENT_AGENT"
-            ? `/agent/patents/${n.patent_application_id}/draft`
-            : base;
-      navigate(path);
+      navigate(patentPathFor(user?.roles, n.patent_application_id));
     }
   }
 

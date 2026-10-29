@@ -191,7 +191,15 @@ export default function AdminPatentDetailPage() {
             {patent.invention_title}
           </h2>
         </div>
-        <StatusBadge status={patent.application_status} />
+        <div className="flex items-center gap-3">
+          <Link
+            to={`/admin/patents/${patentId}/draft`}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Drafting workspace
+          </Link>
+          <StatusBadge status={patent.application_status} />
+        </div>
       </div>
 
       {error && (

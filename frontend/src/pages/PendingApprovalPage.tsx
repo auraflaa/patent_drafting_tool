@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { ROLE_HOME } from "../lib/types";
+import { homePathFor } from "../lib/roles";
 
 export default function PendingApprovalPage() {
   const { user, status, refreshMe, logout } = useAuth();
@@ -20,8 +20,7 @@ export default function PendingApprovalPage() {
 
   useEffect(() => {
     if (status === "approved" && user) {
-      const home = user.roles.map((r) => ROLE_HOME[r]).find(Boolean) || "/";
-      navigate(home, { replace: true });
+      navigate(homePathFor(user.roles), { replace: true });
     }
     if (status === "unauthenticated") {
       navigate("/login", { replace: true });

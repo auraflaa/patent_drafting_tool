@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { LoadingState } from "../components/LoadingState";
-import { ROLE_HOME } from "../lib/types";
+import { homePathFor } from "../lib/roles";
 
 /**
  * Landing point after `signInWithRedirect` (the popup fallback).
@@ -25,8 +25,7 @@ export default function AuthCallbackPage() {
       navigate("/login", { replace: true });
       return;
     }
-    const home = user.roles.map((role) => ROLE_HOME[role]).find(Boolean) || "/";
-    navigate(home, { replace: true });
+    navigate(homePathFor(user.roles), { replace: true });
   }, [status, user, navigate]);
 
   return (

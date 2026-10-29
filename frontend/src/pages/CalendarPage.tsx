@@ -8,7 +8,8 @@ import { LoadingState } from "../components/LoadingState";
 import { EmptyState } from "../components/EmptyState";
 import { useAuth } from "../context/AuthContext";
 import { apiFetch, getFriendlyError } from "../lib/api";
-import { ROLE_HOME, type CalendarEventOut } from "../lib/types";
+import type { CalendarEventOut } from "../lib/types";
+import { patentPathFor } from "../lib/roles";
 
 function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
@@ -43,11 +44,8 @@ export default function CalendarPage() {
     })();
   }, []);
 
-  const homeRole = user?.roles[0];
   function linkFor(patentId: string): string {
-    if (homeRole === "PATENT_AGENT") return `/agent/patents/${patentId}/draft`;
-    if (homeRole === "INNOVATOR") return `/innovator/patents/${patentId}`;
-    return homeRole ? ROLE_HOME[homeRole] : "/";
+    return patentPathFor(user?.roles, patentId);
   }
 
   const calendarEvents: EventInput[] = useMemo(

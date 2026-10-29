@@ -1,9 +1,9 @@
 import { useAuth } from "../context/AuthContext";
-import { ROLE_HOME } from "../lib/types";
+import { homePathFor } from "../lib/roles";
 
 export default function NotAuthorizedPage() {
   const { user, logout } = useAuth();
-  const home = user?.roles.map((r) => ROLE_HOME[r]).find(Boolean) || "/login";
+  const home = homePathFor(user?.roles);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">

@@ -123,6 +123,16 @@ export default function App() {
             }
           />
           <Route
+            path="/admin/patents/:id/draft"
+            element={
+              // Admin and Super Admin are allowed into the drafting
+              // workspace by can_review_draft() server-side.
+              <ProtectedRoute requireRole={["ADMIN", "SUPER_ADMIN"]}>
+                <DraftWorkspacePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/admin/patents"
             element={
               <ProtectedRoute requireRole={["ADMIN", "SUPER_ADMIN"]}>

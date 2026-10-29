@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { NotificationBell } from "./NotificationBell";
-import { ROLE_HOME } from "../lib/types";
+import { homePathFor } from "../lib/roles";
 
 export function DashboardShell({
   title,
@@ -15,10 +15,9 @@ export function DashboardShell({
 }) {
   const { user, logout } = useAuth();
   const location = useLocation();
-  const homeRole = user?.roles[0];
-  const homePath = homeRole ? ROLE_HOME[homeRole] : "/login";
-  const calendarPath = homeRole ? `${ROLE_HOME[homeRole]}/calendar` : "/calendar";
-  const reportsPath = homeRole ? `${ROLE_HOME[homeRole]}/reports` : "/reports";
+  const homePath = homePathFor(user?.roles);
+  const calendarPath = homePath === "/login" ? "/calendar" : `${homePath}/calendar`;
+  const reportsPath = homePath === "/login" ? "/reports" : `${homePath}/reports`;
 
   const navItems = [
     { label: "Dashboard", to: homePath },

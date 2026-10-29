@@ -15,6 +15,9 @@ interface Props {
   statusAllowsGeneration: boolean;
   applicationStatus: string;
   allSectionsCompleted: boolean;
+  /** Generation moves the application to "Draft Generated"; the caller owns
+   * the patent record and has to reload it. */
+  onChanged?: () => void;
 }
 
 export function DocumentGenerationPanel({
@@ -22,6 +25,7 @@ export function DocumentGenerationPanel({
   statusAllowsGeneration,
   applicationStatus,
   allSectionsCompleted,
+  onChanged,
 }: Props) {
   const [documents, setDocuments] = useState<DocumentOut[] | null>(null);
   const [jobs, setJobs] = useState<DocumentGenerationJobOut[] | null>(null);
@@ -65,6 +69,8 @@ export function DocumentGenerationPanel({
       );
       if (job.status === "Failed") {
         setError(`Generation failed: ${job.error_message ?? "unknown error"}`);
+      } else {
+        onChanged?.();
       }
       await Promise.all([loadDocuments(), loadJobs()]);
     } catch (err) {
@@ -84,6 +90,8 @@ export function DocumentGenerationPanel({
       );
       if (job.status === "Failed") {
         setError(`Retry failed again: ${job.error_message ?? "unknown error"}`);
+      } else {
+        onChanged?.();
       }
       await Promise.all([loadDocuments(), loadJobs()]);
     } catch (err) {
