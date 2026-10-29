@@ -37,7 +37,6 @@ from app.core.security import (
     ensure_permission,
     has_permission,
     is_admin,
-    is_super_admin,
 )
 from app.services import blobs
 from app.services import documents as docgen
@@ -385,7 +384,9 @@ def _questionnaire_payload(questionnaire: dict) -> dict:
     return questionnaire_out(questionnaire)
 
 
-def _assert_basic_info_editable(patent: dict, user: dict) -> None:
+def _assert_basic_info_editable(
+    patent: dict, user: dict, *, permission: str = "BASIC_INFO_EDIT"
+) -> None:
     if patent.get("application_status") != "Draft":
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -396,6 +397,7 @@ def _assert_basic_info_editable(patent: dict, user: dict) -> None:
             status.HTTP_403_FORBIDDEN,
             "Only the application owner (or an Admin) can edit basic information.",
         )
+    ensure_permission(user, permission)
 
 
 def _ordered_items(
@@ -591,6 +593,36 @@ def create_patent(payload: dict, user: dict = Depends(active_user)):
 def get_patent(patent_id: str, user: dict = Depends(active_user)):
     ensure_permission(user, "PATENTS_VIEW")
     return patent_out(require_patent(patent_id, user))
+
+
+@router.patch("/patents/{patent_id}")
+def update_patent(patent_id: str, payload: dict, user: dict = Depends(active_user)):
+    """Rename a draft application. The title is the only editable field."""
+    ensure_permission(user, "PATENTS_EDIT")
+    patent = require_patent(patent_id, user)
+    if not (is_patent_creator(patent, user) or is_admin(user)):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Only the application owner can edit it."
+        )
+    if patent.get("application_status") != "Draft":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Only Draft applications can be edited.",
+        )
+    if "invention_title" not in payload:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "invention_title is required."
+        )
+    title = _bounded_text(
+        payload.get("invention_title"), "invention_title", MAX_TITLE_CHARS
+    )
+    if not title:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "invention_title is required."
+        )
+    updated = _set_patent(patent_id, {"invention_title": title})
+    log_activity(user["uid"], "PatentEdited", "PatentApplication", patent_id)
+    return patent_out(updated)
 
 
 @router.post("/patents/{patent_id}/submit")
@@ -1037,7 +1069,7 @@ def update_questionnaire(
     patent_id: str, payload: dict, user: dict = Depends(active_user)
 ):
     patent = require_patent(patent_id, user)
-    _assert_basic_info_editable(patent, user)
+    _assert_basic_info_editable(patent, user, permission="QUESTIONNAIRE_EDIT")
     questionnaire = _questionnaire(patent_id)
     data = _questionnaire_patch(payload)
     merged = {**questionnaire, **data}
@@ -1056,7 +1088,7 @@ def update_questionnaire(
 @router.post("/patents/{patent_id}/questionnaire/submit")
 def submit_questionnaire(patent_id: str, user: dict = Depends(active_user)):
     patent = require_patent(patent_id, user)
-    _assert_basic_info_editable(patent, user)
+    _assert_basic_info_editable(patent, user, permission="QUESTIONNAIRE_SUBMIT")
     questionnaire = _questionnaire(patent_id)
     missing = [
         field
@@ -2350,8 +2382,7 @@ def _report_rows(report_type: str, user: dict) -> list[dict]:
 
 @router.get("/reports/permissions/matrix")
 def report_permission_matrix(user: dict = Depends(active_user)):
-    if not is_super_admin(user):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Super Admin access required.")
+    ensure_permission(user, "RBAC_MANAGE")
     return report_matrix()
 
 
@@ -2359,8 +2390,7 @@ def report_permission_matrix(user: dict = Depends(active_user)):
 def report_permission_toggle(
     payload: dict, grant: bool = Query(...), user: dict = Depends(active_user)
 ):
-    if not is_super_admin(user):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Super Admin access required.")
+    ensure_permission(user, "RBAC_MANAGE")
     try:
         role_id = int(payload.get("role_id"))
         report_type = str(payload.get("report_type"))
@@ -2442,8 +2472,7 @@ def run_report(report_type: str, user: dict = Depends(active_user)):
 
 @router.get("/rbac/matrix")
 def rbac_matrix(user: dict = Depends(active_user)):
-    if not is_super_admin(user):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Super Admin access required.")
+    ensure_permission(user, "RBAC_MANAGE")
     return matrix()
 
 
@@ -2451,8 +2480,7 @@ def rbac_matrix(user: dict = Depends(active_user)):
 def rbac_toggle(
     payload: dict, grant: bool = Query(...), user: dict = Depends(active_user)
 ):
-    if not is_super_admin(user):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Super Admin access required.")
+    ensure_permission(user, "RBAC_MANAGE")
     try:
         role_id = int(payload.get("role_id"))
         permission_id = int(payload.get("permission_id"))
@@ -2465,8 +2493,7 @@ def rbac_toggle(
 
 @router.get("/rbac/users")
 def rbac_users(user: dict = Depends(active_user)):
-    if not is_super_admin(user):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Super Admin access required.")
+    ensure_permission(user, "RBAC_MANAGE")
     users = sort_docs(list_docs("users"), "created_at")
     return [
         {
@@ -2484,8 +2511,7 @@ def rbac_users(user: dict = Depends(active_user)):
 
 @router.post("/rbac/users/{target_id}/roles")
 def assign_role(target_id: str, payload: dict, user: dict = Depends(active_user)):
-    if not is_super_admin(user):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Super Admin access required.")
+    ensure_permission(user, "RBAC_MANAGE")
     role_code = str(payload.get("role_code") or "").upper()
     if role_code not in ALL_ROLE_CODES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown role code.")
@@ -2499,8 +2525,7 @@ def assign_role(target_id: str, payload: dict, user: dict = Depends(active_user)
 
 @router.delete("/rbac/users/{target_id}/roles/{role_code}")
 def revoke_role(target_id: str, role_code: str, user: dict = Depends(active_user)):
-    if not is_super_admin(user):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Super Admin access required.")
+    ensure_permission(user, "RBAC_MANAGE")
     role_code = role_code.upper()
     if role_code not in ALL_ROLE_CODES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown role code.")

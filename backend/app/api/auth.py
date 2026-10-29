@@ -12,7 +12,7 @@ from app.core.firebase import db
 from app.core.security import (
     active_user,
     current_user,
-    is_super_admin,
+    ensure_permission,
     permissions_for,
 )
 from app.services.projections import log_activity, user_out
@@ -124,8 +124,7 @@ def logout(user: dict = Depends(current_user)):
 
 @router.get("/pending-users")
 def pending_users(user: dict = Depends(active_user)):
-    if not is_super_admin(user):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Super Admin access required.")
+    ensure_permission(user, "USERS_APPROVE")
     pending = [
         doc
         for doc in list_docs("users")
@@ -148,8 +147,7 @@ def pending_users(user: dict = Depends(active_user)):
 def approve_user(
     user_id: str, payload: dict | None = None, user: dict = Depends(active_user)
 ):
-    if not is_super_admin(user):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Super Admin access required.")
+    ensure_permission(user, "USERS_APPROVE")
     payload = payload or {}
     role_codes = [str(code).upper() for code in payload.get("role_codes") or []]
     if not role_codes:
@@ -183,8 +181,7 @@ def approve_user(
 def reject_user(
     user_id: str, payload: dict | None = None, user: dict = Depends(active_user)
 ):
-    if not is_super_admin(user):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Super Admin access required.")
+    ensure_permission(user, "USERS_APPROVE")
     if user_id == user["uid"]:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

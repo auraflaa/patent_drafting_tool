@@ -941,7 +941,7 @@ def test_reject_user_blocks_self_and_super_admins(
 ) -> None:
     from app.api import auth
 
-    monkeypatch.setattr(auth, "is_super_admin", lambda user: True)
+    monkeypatch.setattr(auth, "ensure_permission", lambda *args: None)
 
     with pytest.raises(HTTPException) as self_exc:
         auth.reject_user(
@@ -990,7 +990,7 @@ def test_approval_rejection_and_role_changes_are_audited(
     }
     admin = {"uid": "admin", "role_codes": ["SUPER_ADMIN"]}
 
-    monkeypatch.setattr(auth, "is_super_admin", lambda user: True)
+    monkeypatch.setattr(auth, "ensure_permission", lambda *args: None)
     monkeypatch.setattr(auth, "get_doc", lambda *args: dict(target))
     monkeypatch.setattr(auth, "db", lambda: FakeDB())
     monkeypatch.setattr(auth, "log_activity", lambda *args: audit.append(args))
@@ -998,7 +998,7 @@ def test_approval_rejection_and_role_changes_are_audited(
     auth.approve_user("u2", {"role_codes": ["INNOVATOR"]}, admin)
     auth.reject_user("u2", None, admin)
 
-    monkeypatch.setattr(resources, "is_super_admin", lambda user: True)
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
     monkeypatch.setattr(resources, "get_doc", lambda *args: dict(target))
     monkeypatch.setattr(resources, "patch_doc", lambda *args: None)
     monkeypatch.setattr(
@@ -1025,6 +1025,91 @@ def test_ai_output_is_capped(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     with pytest.raises(drafting.AIGenerationError):
         drafting.generate_section({"invention_title": "Test"}, {}, "ABSTRACT")
+
+
+def test_questionnaire_routes_enforce_their_catalogued_permissions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The RBAC catalog lists separate edit and submit grants for questionnaires."""
+    from app.api import resources
+
+    checked: list[str] = []
+    monkeypatch.setattr(
+        resources,
+        "require_patent",
+        lambda *args: {"id": "p1", "application_status": "Draft"},
+    )
+    monkeypatch.setattr(resources, "can_edit_basic_info", lambda *args: True)
+
+    def deny(user, code):
+        checked.append(code)
+        raise HTTPException(403, "denied")
+
+    monkeypatch.setattr(resources, "ensure_permission", deny)
+
+    with pytest.raises(HTTPException) as edit_exc:
+        resources.update_questionnaire("p1", {}, {"uid": "u1"})
+    with pytest.raises(HTTPException) as submit_exc:
+        resources.submit_questionnaire("p1", {"uid": "u1"})
+
+    assert edit_exc.value.status_code == 403
+    assert submit_exc.value.status_code == 403
+    assert checked == ["QUESTIONNAIRE_EDIT", "QUESTIONNAIRE_SUBMIT"]
+
+
+def test_update_patent_rejects_non_owners_and_submitted_applications(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PATENTS_EDIT is a real grant, but it must not override ownership or state."""
+    from app.api import resources
+
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(resources, "is_admin", lambda user: False)
+    monkeypatch.setattr(resources, "is_patent_creator", lambda patent, user: False)
+    monkeypatch.setattr(
+        resources,
+        "require_patent",
+        lambda *args: {"id": "p1", "application_status": "Draft"},
+    )
+
+    with pytest.raises(HTTPException) as owner_exc:
+        resources.update_patent(
+            "p1",
+            {"invention_title": "A new title"},
+            {"uid": "u2", "role_codes": ["INNOVATOR"]},
+        )
+    assert owner_exc.value.status_code == 403
+
+    monkeypatch.setattr(resources, "is_patent_creator", lambda patent, user: True)
+    monkeypatch.setattr(
+        resources,
+        "require_patent",
+        lambda *args: {"id": "p1", "application_status": "Submitted"},
+    )
+    with pytest.raises(HTTPException) as state_exc:
+        resources.update_patent(
+            "p1",
+            {"invention_title": "A new title"},
+            {"uid": "u1", "role_codes": ["INNOVATOR"]},
+        )
+    assert state_exc.value.status_code == 400
+
+
+def test_pending_users_requires_the_approval_permission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import auth
+
+    def deny(user, code):
+        assert code == "USERS_APPROVE"
+        raise HTTPException(403, "denied")
+
+    monkeypatch.setattr(auth, "ensure_permission", deny)
+
+    with pytest.raises(HTTPException) as exc:
+        auth.pending_users({"uid": "u1", "role_codes": ["INNOVATOR"]})
+
+    assert exc.value.status_code == 403
 
 
 def test_submit_patent_requires_a_completed_questionnaire(
