@@ -23,6 +23,10 @@ MAX_COMPLETION_TOKENS = 2048
 RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
 MAX_AI_ATTEMPTS = 3
 MAX_RETRY_WAIT_SECONDS = 30.0
+# A full five-section batch with retries could otherwise hold one request open
+# for ~15 minutes, past every common proxy timeout. The route stops starting
+# new sections after this budget and stores what it already produced.
+BATCH_DEADLINE_SECONDS = 120.0
 
 DRAFT_WARNING = (
     "DRAFT ONLY — this text was generated as a drafting aid and is not legal "
@@ -182,7 +186,15 @@ def _ai_text(patent: dict, questionnaire: dict, section: str) -> str:
         response = _post_chat(prompt)
         response.raise_for_status()
         payload = response.json()
-        text = payload["choices"][0]["message"]["content"].strip()
+        choice = payload["choices"][0]
+        if choice.get("finish_reason") == "length":
+            # Silently storing half a claim set is worse than failing: the
+            # truncation is invisible once the text is in Firestore.
+            raise AIGenerationError(
+                "The AI response hit the token limit and would be truncated. "
+                "Shorten the questionnaire or regenerate this section."
+            )
+        text = choice["message"]["content"].strip()
     except httpx.HTTPStatusError as exc:
         logger.warning(
             "AI request failed with HTTP %s", exc.response.status_code
@@ -190,6 +202,8 @@ def _ai_text(patent: dict, questionnaire: dict, section: str) -> str:
         raise AIGenerationError(
             f"AI request failed with HTTP {exc.response.status_code}."
         ) from exc
+    except AIGenerationError:
+        raise
     except Exception as exc:
         logger.warning("AI request failed: %s", type(exc).__name__)
         raise AIGenerationError(

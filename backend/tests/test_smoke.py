@@ -1140,6 +1140,32 @@ def test_assign_records_the_initial_assignment_history(
     assert recorded == [("p1", None, "agent-2", "Initial assignment", "u1")]
 
 
+def test_truncated_ai_completion_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A length-limited completion must not be stored as a finished draft."""
+    from app.services import drafting
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "choices": [
+                    {"message": {"content": "half a claim"}, "finish_reason": "length"}
+                ]
+            }
+
+    monkeypatch.setattr(drafting.settings, "ai_api_url", "https://example.test/v1/chat/completions")
+    monkeypatch.setattr(drafting.settings, "ai_api_key", "test-key")
+    monkeypatch.setattr(drafting.settings, "ai_model", "test-model")
+    monkeypatch.setattr(drafting, "_post_chat", lambda prompt: FakeResponse())
+
+    with pytest.raises(drafting.AIGenerationError) as exc:
+        drafting._ai_text({"invention_title": "Test"}, {}, "ABSTRACT")
+
+    assert "truncat" in str(exc.value).lower()
+
+
 def test_production_warns_when_allowed_hosts_is_wildcard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

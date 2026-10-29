@@ -10,6 +10,7 @@ parallel compatibility layer.
 import csv
 import io
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePath
@@ -1192,13 +1193,24 @@ def generate_draft(
 
     existing = _draft_outputs(patent_id)
     created = []
+    started = time.monotonic()
     for section in requested:
+        if created and time.monotonic() - started > drafting.BATCH_DEADLINE_SECONDS:
+            logger.info(
+                "draft_batch_deadline_reached",
+                extra={"patent_id": patent_id, "generated": len(created)},
+            )
+            break
         try:
             text, provider, model = drafting.generate_section(
                 patent, questionnaire, section
             )
         except drafting.AIGenerationError as exc:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+            _set_patent(patent_id, {"ai_status": "Failed"})
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"Section {section.replace('_', ' ').title()}: {exc}",
+            ) from exc
         version_number = 1 + max(
             [
                 int(doc.get("version_number") or 0)
@@ -1224,9 +1236,11 @@ def generate_draft(
                 },
             )
         )
-    _set_patent(patent_id, {"ai_status": "Completed"})
-    notify_many({str(patent.get("created_by"))}, patent_id, "DraftGenerated")
-    log_activity(user["uid"], "DraftGenerated", "PatentApplication", patent_id)
+    complete = len(created) == len(requested)
+    _set_patent(patent_id, {"ai_status": "Completed" if complete else "Partial"})
+    if created:
+        notify_many({str(patent.get("created_by"))}, patent_id, "DraftGenerated")
+        log_activity(user["uid"], "DraftGenerated", "PatentApplication", patent_id)
     return [ai_output_out(doc) for doc in created]
 
 
