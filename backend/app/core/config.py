@@ -12,6 +12,12 @@ MULTIPART_OVERHEAD_BYTES = 64 * 1024
 DEFAULT_SELF_HOSTED_UPLOAD_BYTES = 10 * MIB
 DEFAULT_VERCEL_UPLOAD_BYTES = 4 * MIB
 
+# Firestore caps a document at 1 MiB (1 048 576 bytes). A stored file is one
+# document, so the gzip payload is capped below that for field overhead. This
+# is the real limit on what can be kept, and it is advertised separately from
+# the request-size limit so the UI cannot promise 10 MB that cannot be stored.
+MAX_STORED_BYTES = 900_000
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
@@ -80,6 +86,7 @@ class Settings(BaseSettings):
             'deployment_target': self.deployment_target,
             'max_upload_size_bytes': self.upload_limit_bytes,
             'max_request_body_bytes': self.request_body_limit_bytes,
+            'max_stored_size_bytes': MAX_STORED_BYTES,
         }
 
 

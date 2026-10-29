@@ -20,6 +20,7 @@ import gzip
 import hashlib
 import logging
 
+from app.core.config import MAX_STORED_BYTES
 from app.core.firebase import FirebaseNotConfigured
 from app.services.repository import create_doc, delete_doc, get_doc_or_none
 
@@ -27,9 +28,6 @@ logger = logging.getLogger(__name__)
 
 COLLECTION = "blobs"
 ENCODING = "gzip"
-# 900 KB leaves ~148 KB of the 1 MiB document budget for field names, the
-# content type, hashes, and Firestore's own encoding overhead.
-MAX_STORED_BYTES = 900_000
 COMPRESSION_LEVEL = 6
 
 

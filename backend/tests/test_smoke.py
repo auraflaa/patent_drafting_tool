@@ -244,10 +244,14 @@ def test_capabilities_are_public_and_describe_the_limits(client: TestClient) -> 
         "deployment_target",
         "max_upload_size_bytes",
         "max_request_body_bytes",
+        "max_stored_size_bytes",
     }
     assert body["deployment_target"] in {"self_hosted", "vercel"}
     assert body["max_upload_size_bytes"] > 0
     assert body["max_request_body_bytes"] >= body["max_upload_size_bytes"]
+    # The stored-file limit is the real ceiling on attachments (ADR-006) and is
+    # smaller than the request limit, so the UI can describe both honestly.
+    assert body["max_stored_size_bytes"] < body["max_upload_size_bytes"]
     assert response.headers["cache-control"] == "no-store"
 
 

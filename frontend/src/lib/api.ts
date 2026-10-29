@@ -136,6 +136,8 @@ export interface RuntimeCapabilities {
   deployment_target: "self_hosted" | "vercel";
   max_upload_size_bytes: number;
   max_request_body_bytes: number;
+  /** Largest file that fits in one Firestore document after compression. */
+  max_stored_size_bytes: number;
 }
 
 let capabilitiesRequest: Promise<RuntimeCapabilities> | null = null;

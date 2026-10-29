@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { apiDownload, apiFetch, apiUpload } from "../lib/api";
+import { apiDownload, apiFetch, apiUpload, getRuntimeCapabilities } from "../lib/api";
 import { formatFileSize } from "../lib/format";
+import type { RuntimeCapabilities } from "../lib/api";
 import { LoadingState } from "./LoadingState";
 import { EmptyState } from "./EmptyState";
 import {
@@ -167,7 +168,14 @@ function FilesSection({ patentId }: { patentId: string }) {
   const [files, setFiles] = useState<FileOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [capabilities, setCapabilities] = useState<RuntimeCapabilities | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    getRuntimeCapabilities()
+      .then(setCapabilities)
+      .catch(() => setCapabilities(null));
+  }, []);
 
   async function load() {
     try {
@@ -272,7 +280,12 @@ function FilesSection({ patentId }: { patentId: string }) {
           disabled={busy}
           className="text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-slate-700"
         />
-        <p className="mt-1 text-xs text-slate-400">Max 10MB. Executable files aren't allowed.</p>
+        <p className="mt-1 text-xs text-slate-400">
+          {capabilities
+            ? `Up to ${formatFileSize(capabilities.max_upload_size_bytes)} per upload, stored compressed in Firestore (about ${formatFileSize(capabilities.max_stored_size_bytes)} after compression).`
+            : "Files are stored compressed in Firestore."}{" "}
+          Executable files aren't allowed.
+        </p>
       </div>
     </div>
   );
