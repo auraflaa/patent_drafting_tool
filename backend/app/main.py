@@ -11,6 +11,7 @@ from app.core.firebase import initialize_firebase
 from app.core.headers import SecurityHeadersMiddleware
 from app.core.limits import RequestBodyLimitMiddleware
 from app.core.logging import RequestIDMiddleware, configure_logging
+from app.core.ratelimit import RateLimitMiddleware
 from app.api.auth import router as auth_router
 from app.api.resources import router as resources_router
 
@@ -59,6 +60,7 @@ app = FastAPI(title=settings.app_name, version='1.0.0', description='Firebase-ba
 # outermost so every response and log line can be correlated.
 app.add_middleware(UnhandledErrorMiddleware, production=settings.environment == 'production')
 app.add_middleware(RequestBodyLimitMiddleware)
+app.add_middleware(RateLimitMiddleware, limit=settings.auth_rate_limit_per_minute)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=[x.strip() for x in settings.allowed_hosts.split(',') if x.strip()] or ['*'])
 app.add_middleware(
     CORSMiddleware,

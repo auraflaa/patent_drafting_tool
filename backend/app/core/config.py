@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     bootstrap_admin_email: str = ''
     cors_origins: str = 'http://localhost:5173,http://127.0.0.1:5173'
     allowed_hosts: str = '*'
+    # Requests per minute per client for the mutating /api/auth endpoints.
+    # 0 disables the limiter. Session endpoints are exempt (see ratelimit.py).
+    auth_rate_limit_per_minute: int = Field(default=60, ge=0)
     # `vercel` clamps the upload limit below Vercel's 4.5 MB function body cap.
     deployment_target: Literal['self_hosted', 'vercel'] = 'self_hosted'
     # 0 means "use the deployment target's default".
