@@ -522,6 +522,19 @@ def template_out(doc: dict, editor: dict | None) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _best_effort(event: str, operation) -> None:
+    """Run a secondary write without failing the mutation it follows.
+
+    Notifications and activity rows are recorded after the primary document is
+    already committed. Letting one fail would return a 500 for work that did
+    succeed, and the client would repeat the mutation.
+    """
+    try:
+        operation()
+    except Exception as exc:
+        log_event(logger, logging.WARNING, event, error_type=type(exc).__name__)
+
+
 def notify_many(
     user_ids: set[str] | list[str],
     patent_id: str | None,
@@ -530,38 +543,50 @@ def notify_many(
     exclude: str | None = None,
 ) -> None:
     for uid in {uid for uid in user_ids if uid and uid != exclude}:
-        create_doc(
-            "notifications",
-            {
-                "user_id": uid,
-                "patent_application_id": patent_id,
-                "notification_type": notification_type,
-                "is_read": False,
-            },
+        _best_effort(
+            "notification_write_failed",
+            lambda uid=uid: create_doc(
+                "notifications",
+                {
+                    "user_id": uid,
+                    "patent_application_id": patent_id,
+                    "notification_type": notification_type,
+                    "is_read": False,
+                },
+            ),
         )
 
 
 def notify_admins(patent_id: str | None, notification_type: str) -> None:
-    admins = {
-        doc["id"]
-        for doc in list_docs("users")
-        if {"ADMIN", "SUPER_ADMIN"} & set(doc.get("role_codes") or [])
-    }
+    try:
+        admins = {
+            doc["id"]
+            for doc in list_docs("users")
+            if {"ADMIN", "SUPER_ADMIN"} & set(doc.get("role_codes") or [])
+        }
+    except Exception as exc:
+        log_event(
+            logger, logging.WARNING, "admin_lookup_failed", error_type=type(exc).__name__
+        )
+        return
     notify_many(admins, patent_id, notification_type)
 
 
 def log_activity(
     user_id: str, event_type: str, entity_type: str, entity_id: str | None
 ) -> None:
-    create_doc(
-        "activity",
-        {
-            "user_id": user_id,
-            "event_type": event_type,
-            "entity_type": entity_type,
-            "entity_id": entity_id,
-            "created_at": now_iso(),
-        },
+    _best_effort(
+        "activity_write_failed",
+        lambda: create_doc(
+            "activity",
+            {
+                "user_id": user_id,
+                "event_type": event_type,
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "created_at": now_iso(),
+            },
+        ),
     )
 
 

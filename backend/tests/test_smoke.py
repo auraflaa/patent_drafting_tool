@@ -1112,6 +1112,34 @@ def test_pending_users_requires_the_approval_permission(
     assert exc.value.status_code == 403
 
 
+def test_secondary_writes_never_fail_the_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed notification or activity row must not 500 a committed write."""
+    from app.services import projections
+
+    logged: list[str] = []
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("firestore unavailable")
+
+    monkeypatch.setattr(projections, "create_doc", boom)
+    monkeypatch.setattr(projections, "list_docs", boom)
+    monkeypatch.setattr(
+        projections,
+        "log_event",
+        lambda logger, level, event, **fields: logged.append(event),
+    )
+
+    projections.notify_many({"u1", "u2"}, "p1", "Submitted")
+    projections.notify_admins("p1", "Submitted")
+    projections.log_activity("u1", "PatentSubmitted", "PatentApplication", "p1")
+
+    assert logged.count("notification_write_failed") == 2
+    assert "admin_lookup_failed" in logged
+    assert "activity_write_failed" in logged
+
+
 def test_submit_patent_requires_a_completed_questionnaire(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
