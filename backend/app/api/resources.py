@@ -602,6 +602,17 @@ def submit_patent(patent_id: str, user: dict = Depends(active_user)):
             status.HTTP_400_BAD_REQUEST,
             "Only Draft applications can be submitted.",
         )
+    # Submitting freezes the questionnaire (`_assert_basic_info_editable` only
+    # allows edits while the application is Draft) and draft generation
+    # requires a Completed questionnaire, so an incomplete one would strand
+    # the application permanently.
+    questionnaire = _questionnaire(patent_id)
+    if questionnaire.get("questionnaire_status") != "Completed":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Submit the questionnaire before submitting the application. "
+            "The questionnaire becomes read-only afterwards.",
+        )
     updated = _set_patent(patent_id, {"application_status": "Submitted"})
     notify_admins(patent_id, "Submitted")
     log_activity(user["uid"], "PatentSubmitted", "PatentApplication", patent_id)

@@ -1023,6 +1023,57 @@ def test_ai_output_is_capped(monkeypatch: pytest.MonkeyPatch) -> None:
         drafting.generate_section({"invention_title": "Test"}, {}, "ABSTRACT")
 
 
+def test_submit_patent_requires_a_completed_questionnaire(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An incomplete questionnaire would become read-only and block drafting."""
+    from app.api import resources
+
+    patent = {"id": "p1", "created_by": "u1", "application_status": "Draft"}
+    writes: list[tuple] = []
+    monkeypatch.setattr(resources, "require_patent", lambda *args: patent)
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(
+        resources, "_questionnaire", lambda *args: {"questionnaire_status": "In Progress"}
+    )
+    monkeypatch.setattr(
+        resources, "_set_patent", lambda *args: writes.append(args) or patent
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        resources.submit_patent("p1", {"uid": "u1", "role_codes": ["INNOVATOR"]})
+
+    assert exc.value.status_code == 400
+    assert "questionnaire" in exc.value.detail.lower()
+    assert writes == []
+
+
+def test_submit_patent_accepts_a_completed_questionnaire(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import resources
+
+    patent = {"id": "p1", "created_by": "u1", "application_status": "Draft"}
+    monkeypatch.setattr(resources, "require_patent", lambda *args: patent)
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(
+        resources, "_questionnaire", lambda *args: {"questionnaire_status": "Completed"}
+    )
+    monkeypatch.setattr(
+        resources,
+        "_set_patent",
+        lambda *args: {**patent, "application_status": "Submitted"},
+    )
+    monkeypatch.setattr(resources, "notify_admins", lambda *args: None)
+    monkeypatch.setattr(resources, "log_activity", lambda *args: None)
+
+    result = resources.submit_patent(
+        "p1", {"uid": "u1", "role_codes": ["INNOVATOR"]}
+    )
+
+    assert result["application_status"] == "Submitted"
+
+
 def test_production_warns_when_allowed_hosts_is_wildcard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
