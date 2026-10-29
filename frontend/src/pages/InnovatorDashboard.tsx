@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { DashboardShell } from "../components/DashboardShell";
 import { StatusBadge } from "../components/StatusBadge";
 import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { EmptyState } from "../components/EmptyState";
 import { apiFetch } from "../lib/api";
 import type {
@@ -212,7 +213,12 @@ function TeamPanel({
     }
   }
 
-  if (!team) return <LoadingState />;
+  if (!team)
+    return error ? (
+      <ErrorState message={error} onRetry={load} />
+    ) : (
+      <LoadingState />
+    );
 
   return (
     <div className="space-y-6">

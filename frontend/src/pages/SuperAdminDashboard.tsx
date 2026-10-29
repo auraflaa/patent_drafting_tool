@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { DashboardShell } from "../components/DashboardShell";
 import { TemplatesPanel } from "../components/TemplatesPanel";
 import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { EmptyState } from "../components/EmptyState";
 import { apiFetch } from "../lib/api";
 import type {
@@ -157,7 +158,12 @@ function PendingApprovalsPanel() {
     }
   }
 
-  if (pending === null) return <LoadingState />;
+  if (pending === null)
+    return error ? (
+      <ErrorState message={error} onRetry={load} />
+    ) : (
+      <LoadingState />
+    );
 
   return (
     <div className="space-y-4">
@@ -240,7 +246,12 @@ function RbacMatrixPanel() {
     load();
   }, []);
 
-  if (!matrix) return <LoadingState />;
+  if (!matrix)
+    return error ? (
+      <ErrorState message={error} onRetry={load} />
+    ) : (
+      <LoadingState />
+    );
 
   const isGranted = (roleId: number, permId: number) =>
     matrix.grants.some((g) => g.role_id === roleId && g.permission_id === permId);
@@ -361,7 +372,12 @@ function ReportPermissionsPanel() {
     load();
   }, []);
 
-  if (!matrix) return <LoadingState />;
+  if (!matrix)
+    return error ? (
+      <ErrorState message={error} onRetry={load} />
+    ) : (
+      <LoadingState />
+    );
 
   const isGranted = (roleId: number, reportType: string) =>
     matrix.grants.some((g) => g.role_id === roleId && g.report_type === reportType);
@@ -488,7 +504,12 @@ function AllUsersPanel() {
     }
   }
 
-  if (!users) return <LoadingState />;
+  if (!users)
+    return error ? (
+      <ErrorState message={error} onRetry={load} />
+    ) : (
+      <LoadingState />
+    );
 
   return (
     <div className="space-y-3">

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { DashboardShell } from "../components/DashboardShell";
 import { StatusBadge } from "../components/StatusBadge";
 import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { EmptyState } from "../components/EmptyState";
 import { apiFetch, getFriendlyError } from "../lib/api";
 import type { PatentOut } from "../lib/types";
@@ -35,7 +36,9 @@ export default function AgentDashboard() {
 
   return (
     <DashboardShell title="Patent Agent">
-      {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
+      {error && patents !== null && (
+        <p className="mb-4 text-sm text-red-600">{error}</p>
+      )}
 
       {awaitingDecision && awaitingDecision.length > 0 && (
         <div className="mb-8">
@@ -52,7 +55,8 @@ export default function AgentDashboard() {
 
       <div>
         <h2 className="mb-3 text-sm font-semibold text-slate-700">Your applications</h2>
-        {rest === null && <LoadingState />}
+        {patents === null &&
+          (error ? <ErrorState message={error} onRetry={load} /> : <LoadingState />)}
         {rest?.length === 0 && (
           <EmptyState title="Nothing assigned to you yet." />
         )}

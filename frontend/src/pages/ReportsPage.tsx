@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { DashboardShell } from "../components/DashboardShell";
 import { StatusBadge } from "../components/StatusBadge";
 import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { EmptyState } from "../components/EmptyState";
 import { useAuth } from "../context/AuthContext";
 import { apiDownload, apiFetch, ApiError, getFriendlyError } from "../lib/api";
@@ -191,7 +192,12 @@ function ReportBrowser() {
     }
   }
 
-  if (!types) return <LoadingState label="Loading report catalog…" />;
+  if (!types)
+    return error ? (
+      <ErrorState message={error} onRetry={loadTypes} />
+    ) : (
+      <LoadingState label="Loading report catalog…" />
+    );
 
   const selectedMeta = types.find((t) => t.report_type === selected);
   const columns = report && report.rows.length > 0 ? Object.keys(report.rows[0]) : [];
@@ -231,10 +237,12 @@ function ReportBrowser() {
       {selectedMeta && (
         <p className="mb-3 text-xs text-slate-400">{selectedMeta.description}</p>
       )}
-      {error && <p className="mb-3 text-xs text-red-600">{error}</p>}
+      {error && report && (
+        <p className="mb-3 text-xs text-red-600">{error}</p>
+      )}
 
       {!report ? (
-        <LoadingState />
+        error ? <ErrorState message={error} /> : <LoadingState />
       ) : report.rows.length === 0 ? (
         <EmptyState title="No data yet." />
       ) : (

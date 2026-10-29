@@ -6,6 +6,7 @@ import type {
   DocumentVersionOut,
 } from "../lib/types";
 import { LoadingState } from "./LoadingState";
+import { ErrorState } from "./ErrorState";
 
 interface Props {
   patentId: string;
@@ -136,7 +137,7 @@ export function DocumentGenerationPanel({
     <div className="mt-8">
       <h3 className="mb-3 text-sm font-semibold text-slate-700">Documents</h3>
 
-      {error && (
+      {error && documents !== null && jobs !== null && (
         <div
           role="alert"
           className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
@@ -145,9 +146,19 @@ export function DocumentGenerationPanel({
         </div>
       )}
 
-      {(documents === null || jobs === null) && (
-        <LoadingState compact label="Loading documents…" />
-      )}
+      {(documents === null || jobs === null) &&
+        (error ? (
+          <ErrorState
+            compact
+            message={error}
+            onRetry={() => {
+              loadDocuments();
+              loadJobs();
+            }}
+          />
+        ) : (
+          <LoadingState compact label="Loading documents…" />
+        ))}
 
       {!statusAllowsGeneration && (
         <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">

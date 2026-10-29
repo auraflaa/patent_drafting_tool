@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch, apiUpload } from "../lib/api";
 import { LoadingState } from "./LoadingState";
+import { ErrorState } from "./ErrorState";
 import type { TemplateOut } from "../lib/types";
 
 export function TemplatesPanel() {
@@ -115,7 +116,12 @@ export function TemplatesPanel() {
     }
   }
 
-  if (documentTypes === null) return <LoadingState />;
+  if (documentTypes === null)
+    return error ? (
+      <ErrorState message={error} onRetry={loadDocumentTypes} />
+    ) : (
+      <LoadingState />
+    );
 
   return (
     <div className="space-y-4">
