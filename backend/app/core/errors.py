@@ -36,7 +36,8 @@ class UnhandledErrorMiddleware:
 
         try:
             await self.app(scope, receive, tracking_send)
-        except Exception as exc:  # noqa: BLE001 - this is the catch-all
+        except Exception as exc:
+            # Catch-all: turn any escaped error into a readable JSON 500.
             logger.exception(
                 "Unhandled error on %s %s", scope.get("method"), scope.get("path")
             )

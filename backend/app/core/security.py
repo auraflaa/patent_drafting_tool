@@ -63,7 +63,7 @@ def current_user(
         claims = verify_id_token(credentials.credentials)
     except FirebaseNotConfigured as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 - firebase raises several token errors
+    except Exception as exc:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             "Firebase ID token is invalid or expired.",
@@ -81,10 +81,10 @@ def current_user(
 
     # The bootstrap account is always an approved Super Admin, even if an
     # older profile predates that setting. Write only when something changed.
-    # Profiles created before `email_verified` was stored keep the old
-    # behaviour; new profiles always carry the claim.
+    # Profiles created before `email_verified` was stored fall back to the
+    # current token's claim, so an unverified address cannot claim bootstrap.
     if _bootstrap_email(profile.get("email", "")) and profile.get(
-        "email_verified", True
+        "email_verified", claims.get("email_verified", False)
     ):
         roles = set(profile.get("role_codes") or [])
         if "SUPER_ADMIN" not in roles or profile.get("account_status") != APPROVED:

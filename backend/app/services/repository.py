@@ -7,7 +7,8 @@ ordering is done in Python, which is fine at the scale this single-instance
 app targets (ADR-003).
 """
 from datetime import datetime, timezone
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from fastapi import HTTPException
 from google.cloud import firestore
@@ -172,6 +173,13 @@ def sort_docs(
 
     def key(item: dict):
         value = item.get(field)
-        return (value is None, value if value is not None else "")
+        if value is None:
+            return (1, "", "")
+        # Firestore can return unlike types for the same field (an old numeric
+        # timestamp next to a new ISO string). Rank by type name so the sort is
+        # total instead of raising TypeError; equal types compare natively.
+        if isinstance(value, (str, int, float, bool, datetime)):
+            return (0, type(value).__name__, value)
+        return (0, type(value).__name__, repr(value))
 
     return sorted(items, key=key, reverse=reverse)
