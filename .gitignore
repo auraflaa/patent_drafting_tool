@@ -3,6 +3,7 @@ backend/.env
 frontend/.env
 .env
 .env.*
+.env.*.local
 !.env.example
 backend/secrets/*
 !backend/secrets/.gitkeep
@@ -12,6 +13,11 @@ secrets/
 firebase-service-account*.json
 *-firebase-adminsdk-*.json
 serviceAccountKey.json
+
+# --- Google Cloud / Firebase credentials (catch-all) ---
+*.gcp.json
+*credentials*.json
+*service-account*.json
 
 # --- Firebase CLI (local caches and debug logs) ---
 .firebase/
