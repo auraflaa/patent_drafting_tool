@@ -26,7 +26,9 @@ os.environ["FIREBASE_SERVICE_ACCOUNT_PATH"] = str(
 )
 os.environ["BOOTSTRAP_ADMIN_EMAIL"] = ""
 os.environ["ENVIRONMENT"] = "test"
-os.environ["AI_PROVIDER"] = "stub"
+os.environ["AI_API_URL"] = ""
+os.environ["AI_API_KEY"] = ""
+os.environ["AI_MODEL"] = ""
 os.environ["ALLOWED_HOSTS"] = "testserver,localhost,127.0.0.1"
 os.environ["CORS_ORIGINS"] = "http://localhost:5173"
 os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)

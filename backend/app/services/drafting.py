@@ -1,17 +1,28 @@
 """AI drafting with a stub-first provider (ADR-004).
 
-`AI_PROVIDER=stub` (the default) never touches the network and always returns
-a clearly labelled draft. `AI_PROVIDER=gemini` plus `GEMINI_API_KEY` uses the
-Gemini REST API through httpx. Generated text is a drafting aid, never legal
-advice.
+`AI_API_URL`/`AI_API_KEY`/`AI_MODEL` configure any OpenAI-compatible chat
+endpoint. When unset, the stub never touches the network and returns
+a clearly labelled draft. Generated text is a drafting aid, never legal advice.
 """
 import logging
+import time
+from urllib.parse import urlparse
 
 import httpx
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Providers rate-limit per minute (Groq's free tier: 8 000 TPM for the
+# drafting models). One draft section is comfortably under 2 048 tokens; a
+# larger ceiling only inflates the per-minute budget and the latency tail.
+MAX_COMPLETION_TOKENS = 2048
+# 429 and transient upstream failures are worth one more attempt: the token
+# window slides, so a short wait usually clears it.
+RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
+MAX_AI_ATTEMPTS = 3
+MAX_RETRY_WAIT_SECONDS = 30.0
 
 DRAFT_WARNING = (
     "DRAFT ONLY — this text was generated as a drafting aid and is not legal "
@@ -83,11 +94,75 @@ def _stub_text(patent: dict, questionnaire: dict, section: str) -> str:
     return f"{body}\n\n{DRAFT_WARNING}"
 
 
-def _gemini_text(patent: dict, questionnaire: dict, section: str) -> str:
-    if not settings.gemini_api_key:
-        raise AIGenerationError(
-            "AI_PROVIDER=gemini requires GEMINI_API_KEY to be set."
+def _provider_label() -> str:
+    """Human-readable provider name for the stored `ai_provider` field."""
+    host = urlparse(settings.ai_api_url).hostname or ""
+    return host or "openai-compatible"
+
+
+def _retry_wait_seconds(response: httpx.Response, fallback: float) -> float:
+    """Honour `Retry-After` when the provider sends it, else use backoff."""
+    raw = (response.headers.get("retry-after") or "").strip()
+    if raw:
+        try:
+            return min(max(float(raw), 0.0), MAX_RETRY_WAIT_SECONDS)
+        except ValueError:
+            pass
+    return min(max(fallback, 0.0), MAX_RETRY_WAIT_SECONDS)
+
+
+def _post_chat(prompt: str) -> httpx.Response:
+    """POST one chat completion, retrying rate limits and transient 5xx.
+
+    A 429 on a per-minute token budget clears as the window slides, so the
+    same request usually succeeds on the next attempt.
+    """
+    delay = 2.0
+    response = None
+    for attempt in range(1, MAX_AI_ATTEMPTS + 1):
+        response = httpx.post(
+            settings.ai_api_url,
+            # The key goes in an Authorization header, never the query string:
+            # httpx puts the full URL in HTTPStatusError, which would leak the
+            # key into API responses and logs.
+            headers={
+                "Authorization": f"Bearer {settings.ai_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": settings.ai_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+                "max_tokens": MAX_COMPLETION_TOKENS,
+            },
+            timeout=60.0,
         )
+        if response.status_code not in RETRYABLE_STATUSES:
+            return response
+        if attempt == MAX_AI_ATTEMPTS:
+            break
+        wait = _retry_wait_seconds(response, delay)
+        logger.info(
+            "AI request returned %s; retrying in %.1fs (attempt %s/%s)",
+            response.status_code,
+            wait,
+            attempt + 1,
+            MAX_AI_ATTEMPTS,
+        )
+        time.sleep(wait)
+        delay *= 3
+    return response
+
+
+def _ai_text(patent: dict, questionnaire: dict, section: str) -> str:
+    if not settings.ai_api_url or not settings.ai_api_key or not settings.ai_model:
+        raise AIGenerationError(
+            "AI_API_URL, AI_API_KEY, and AI_MODEL must all be set to use AI drafting."
+        )
+    parsed = urlparse(settings.ai_api_url)
+    if parsed.scheme != "https" and parsed.hostname not in {"localhost", "127.0.0.1"}:
+        # The API key travels in a header; a plain-http endpoint would expose it.
+        raise AIGenerationError("AI_API_URL must use https (http is allowed only for localhost).")
     prompt = (
         "You are assisting a patent professional with a first draft. "
         "Return plain text only, no markdown. Always end with this exact "
@@ -103,36 +178,22 @@ def _gemini_text(patent: dict, questionnaire: dict, section: str) -> str:
         f"Prior art: {questionnaire.get('prior_art')}\n"
         f"Keywords: {questionnaire.get('keywords')}\n"
     )
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{settings.gemini_model}:generateContent"
-    )
     try:
-        response = httpx.post(
-            url,
-            # The key goes in a header, never the query string: httpx puts the
-            # full URL in HTTPStatusError, which would leak the key into API
-            # responses and logs.
-            headers={"x-goog-api-key": settings.gemini_api_key},
-            json={"contents": [{"parts": [{"text": prompt}]}]},
-            timeout=60.0,
-        )
+        response = _post_chat(prompt)
         response.raise_for_status()
         payload = response.json()
-        text = payload["candidates"][0]["content"]["parts"][0]["text"].strip()
+        text = payload["choices"][0]["message"]["content"].strip()
     except httpx.HTTPStatusError as exc:
         logger.warning(
-            "Gemini request failed with HTTP %s", exc.response.status_code
+            "AI request failed with HTTP %s", exc.response.status_code
         )
         raise AIGenerationError(
-            f"Gemini request failed with HTTP {exc.response.status_code}."
+            f"AI request failed with HTTP {exc.response.status_code}."
         ) from exc
-    except Exception as exc:  # noqa: BLE001 - provider errors become API 502s
-        # Do not interpolate the exception: httpx error strings can contain the
-        # request URL, and provider responses can echo request details.
-        logger.warning("Gemini request failed: %s", type(exc).__name__)
+    except Exception as exc:
+        logger.warning("AI request failed: %s", type(exc).__name__)
         raise AIGenerationError(
-            "Gemini request failed. Check the API key and model configuration."
+            "AI request failed. Check the API key, model, and endpoint."
         ) from exc
     if DRAFT_WARNING not in text:
         text = f"{text}\n\n{DRAFT_WARNING}"
@@ -145,12 +206,18 @@ def generate_section(
     """Return (text, provider, model) for one section."""
     if section not in SECTION_TYPES:
         raise AIGenerationError(f"Unknown section type: {section}")
-    provider = (settings.ai_provider or "stub").lower()
-    if provider == "gemini" and settings.gemini_api_key:
+    configured = [settings.ai_api_url, settings.ai_api_key, settings.ai_model]
+    if any(configured) and not all(configured):
+        # Half-configured AI used to send `"model": ""` to the provider and
+        # surface as an opaque 502. Fail loudly and name the missing vars.
+        raise AIGenerationError(
+            "AI_API_URL, AI_API_KEY, and AI_MODEL must all be set, or all left empty."
+        )
+    if settings.ai_api_url:
         text, used_provider, model = (
-            _gemini_text(patent, questionnaire, section),
-            "gemini",
-            settings.gemini_model,
+            _ai_text(patent, questionnaire, section),
+            _provider_label(),
+            settings.ai_model,
         )
     else:
         text, used_provider, model = (

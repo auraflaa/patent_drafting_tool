@@ -177,7 +177,12 @@ def test_every_report_type_is_known() -> None:
     }
 
 
-def test_stub_draft_always_carries_the_warning() -> None:
+def test_stub_draft_always_carries_the_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.config import settings
+    from app.services import drafting
+    monkeypatch.setattr(settings, "ai_api_url", "")
+    monkeypatch.setattr(settings, "ai_api_key", "")
+    monkeypatch.setattr(settings, "ai_model", "")
     patent = {"invention_title": "Self-sealing widget"}
     questionnaire = {
         "invention_type": "Utility",
@@ -575,14 +580,16 @@ def test_bootstrap_admin_requires_a_verified_email(
     assert verified["role_codes"] == ["SUPER_ADMIN"]
 
 
-def test_gemini_key_is_a_header_and_never_echoed(
+def test_ai_key_is_a_header_and_never_echoed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.core.config import settings
     from app.services import drafting
 
     secret = "super-secret-key"
-    monkeypatch.setattr(settings, "gemini_api_key", secret)
+    monkeypatch.setattr(settings, "ai_api_url", "https://example.ai/v1/chat/completions")
+    monkeypatch.setattr(settings, "ai_api_key", secret)
+    monkeypatch.setattr(settings, "ai_model", "test-model")
     seen: dict = {}
 
     def fake_post(url: str, **kwargs):
@@ -596,11 +603,109 @@ def test_gemini_key_is_a_header_and_never_echoed(
 
     monkeypatch.setattr(drafting.httpx, "post", fake_post)
     with pytest.raises(drafting.AIGenerationError) as exc:
-        drafting._gemini_text({"invention_title": "Test"}, {}, "ABSTRACT")
+        drafting._ai_text({"invention_title": "Test"}, {}, "ABSTRACT")
 
     assert secret not in str(exc.value)
     assert "key" not in seen
-    assert seen["headers"]["x-goog-api-key"] == secret
+    assert seen["headers"]["Authorization"] == f"Bearer {secret}"
+
+
+def test_ai_retries_a_rate_limit_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.config import settings
+    from app.services import drafting
+
+    monkeypatch.setattr(settings, "ai_api_url", "https://example.ai/v1/chat/completions")
+    monkeypatch.setattr(settings, "ai_api_key", "secret")
+    monkeypatch.setattr(settings, "ai_model", "test-model")
+    sleeps: list[float] = []
+    monkeypatch.setattr(drafting.time, "sleep", sleeps.append)
+
+    calls = {"n": 0, "body": None}
+
+    def fake_post(url: str, **kwargs):
+        calls["n"] += 1
+        calls["body"] = kwargs["json"]
+        request = httpx.Request("POST", url)
+        if calls["n"] == 1:
+            return httpx.Response(
+                429, headers={"retry-after": "7"}, request=request
+            )
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "choices": [
+                    {"message": {"content": drafting.DRAFT_WARNING}}
+                ]
+            },
+        )
+
+    monkeypatch.setattr(drafting.httpx, "post", fake_post)
+
+    text = drafting._ai_text({"invention_title": "Test"}, {}, "ABSTRACT")
+
+    assert calls["n"] == 2
+    assert sleeps == [7.0]
+    assert calls["body"]["max_tokens"] == drafting.MAX_COMPLETION_TOKENS
+    assert drafting.DRAFT_WARNING in text
+
+
+def test_ai_stops_after_the_retry_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.config import settings
+    from app.services import drafting
+
+    monkeypatch.setattr(settings, "ai_api_url", "https://example.ai/v1/chat/completions")
+    monkeypatch.setattr(settings, "ai_api_key", "secret")
+    monkeypatch.setattr(settings, "ai_model", "test-model")
+    monkeypatch.setattr(drafting.time, "sleep", lambda seconds: None)
+
+    calls = {"n": 0}
+
+    def fake_post(url: str, **kwargs):
+        calls["n"] += 1
+        request = httpx.Request("POST", url)
+        return httpx.Response(429, request=request)
+
+    monkeypatch.setattr(drafting.httpx, "post", fake_post)
+    with pytest.raises(drafting.AIGenerationError, match="HTTP 429"):
+        drafting._ai_text({"invention_title": "Test"}, {}, "ABSTRACT")
+
+    assert calls["n"] == drafting.MAX_AI_ATTEMPTS
+
+
+def test_ai_rejects_partial_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.config import settings
+    from app.services import drafting
+
+    monkeypatch.setattr(settings, "ai_api_url", "https://example.ai/v1/chat/completions")
+    monkeypatch.setattr(settings, "ai_api_key", "secret")
+    monkeypatch.setattr(settings, "ai_model", "")
+
+    with pytest.raises(drafting.AIGenerationError) as exc:
+        drafting.generate_section({"invention_title": "Test"}, {}, "ABSTRACT")
+
+    assert "AI_MODEL" in str(exc.value)
+
+
+def test_ai_rejects_plain_http_endpoints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.config import settings
+    from app.services import drafting
+
+    monkeypatch.setattr(settings, "ai_api_url", "http://example.ai/v1/chat/completions")
+    monkeypatch.setattr(settings, "ai_api_key", "secret")
+    monkeypatch.setattr(settings, "ai_model", "test-model")
+
+    # The key travels in a header, so plain http would expose it.
+    with pytest.raises(drafting.AIGenerationError) as exc:
+        drafting._ai_text({"invention_title": "Test"}, {}, "ABSTRACT")
+
+    assert "https" in str(exc.value)
 
 
 def _docx_bytes() -> bytes:

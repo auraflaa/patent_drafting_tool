@@ -44,9 +44,9 @@ class Settings(BaseSettings):
         '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.txt,.csv,.md,.rtf,'
         '.png,.jpg,.jpeg,.gif,.webp,.tif,.tiff'
     )
-    gemini_api_key: str = ''
-    gemini_model: str = 'gemini-2.0-flash'
-    ai_provider: str = 'stub'
+    ai_api_url: str = ''
+    ai_api_key: str = Field(default='', repr=False)
+    ai_model: str = ''
 
     @property
     def allowed_extensions(self) -> tuple[str, ...]:
