@@ -16,6 +16,33 @@ export function setTokenProvider(provider: TokenProvider) {
   tokenProvider = provider;
 }
 
+/**
+ * Called once by AuthContext. A 401 means the API no longer accepts this
+ * session (expired, revoked, or account removed), so every caller would
+ * otherwise just show "sign in again" while staying on the broken page.
+ */
+type UnauthorizedHandler = () => void;
+
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+let reportedUnauthorized = false;
+
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
+  unauthorizedHandler = handler;
+  reportedUnauthorized = false;
+}
+
+/** Tell the app the session is dead, at most once per signed-in session. */
+function notifyUnauthorized(context: string, path: string, detail: string) {
+  logError(context, { path, status: 401, detail });
+  if (reportedUnauthorized) return;
+  reportedUnauthorized = true;
+  try {
+    unauthorizedHandler?.();
+  } catch (error) {
+    logError("unauthorizedHandler", error);
+  }
+}
+
 async function authHeaders(): Promise<Record<string, string>> {
   const token = await tokenProvider();
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -191,11 +218,13 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
     let detail = (await readErrorDetail(response)) ?? `Request failed (${response.status})`;
     // Auth warnings are logged for debugging but never shown to users.
     if (response.status === 401) {
-      logError("apiFetch", { path, status: response.status, detail });
+      notifyUnauthorized("apiFetch", path, detail);
       detail = "Your session has expired. Please sign in again.";
     }
     throw new ApiError(response.status, detail);
   }
+
+  reportedUnauthorized = false;
 
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -237,11 +266,13 @@ export async function apiUpload<T>(
   if (!response.ok) {
     let detail = (await readErrorDetail(response)) ?? `Upload failed (${response.status})`;
     if (response.status === 401) {
-      logError("apiUpload", { path, status: response.status, detail });
+      notifyUnauthorized("apiUpload", path, detail);
       detail = "Your session has expired. Please sign in again.";
     }
     throw new ApiError(response.status, detail);
   }
+
+  reportedUnauthorized = false;
 
   return (await response.json()) as T;
 }
@@ -278,11 +309,13 @@ export async function apiDownload(path: string, fallbackFilename: string): Promi
   if (!response.ok) {
     let detail = (await readErrorDetail(response)) ?? `Download failed (${response.status})`;
     if (response.status === 401) {
-      logError("apiDownload", { path, status: response.status, detail });
+      notifyUnauthorized("apiDownload", path, detail);
       detail = "Your session has expired. Please sign in again.";
     }
     throw new ApiError(response.status, detail);
   }
+
+  reportedUnauthorized = false;
 
   const disposition = response.headers.get("Content-Disposition") || "";
   const filename = filenameFromDisposition(disposition, fallbackFilename);
@@ -295,5 +328,7 @@ export async function apiDownload(path: string, fallbackFilename: string): Promi
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  // Revoking immediately can cancel the download in some browsers, because the
+  // navigation to the blob URL has not started yet. Give it time to finish.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }

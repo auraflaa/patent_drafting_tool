@@ -16,7 +16,13 @@ import {
   signOut,
   type User as FirebaseUser,
 } from "firebase/auth";
-import { apiFetch, setTokenProvider, ApiError, logError } from "../lib/api";
+import {
+  apiFetch,
+  setTokenProvider,
+  setUnauthorizedHandler,
+  ApiError,
+  logError,
+} from "../lib/api";
 import { FirebaseConfigError, firebaseAuth, isFirebaseConfigured } from "../lib/firebase";
 import type { MeResponse, UserOut } from "../lib/types";
 
@@ -156,6 +162,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     return () => setTokenProvider(async () => null);
   }, []);
+
+  // A 401 from any request means the session is no longer usable. Drop the
+  // cached profile and Firebase session so ProtectedRoute sends the user back
+  // to /login instead of leaving a half-dead page on screen. Deliberately not
+  // calling logout() here: its /api/auth/logout ACK would itself 401.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      try {
+        void signOut(firebaseAuth());
+      } catch {
+        // unconfigured Firebase — clearing local state is enough
+      }
+      clearSession();
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [clearSession]);
 
   const loadMe = useCallback(async () => {
     try {
