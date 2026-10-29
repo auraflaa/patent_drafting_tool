@@ -626,8 +626,20 @@ function InventorsPanel({
 
 // ---------------------------------------------------------------------------
 // Questionnaire
-// Questionnaire
 // ---------------------------------------------------------------------------
+
+/** Every field the PATCH endpoint accepts; submit persists them all first. */
+const QUESTIONNAIRE_FIELDS: (keyof QuestionnaireUpdateInput)[] = [
+  "invention_type",
+  "problem_statement",
+  "proposed_solution",
+  "novelty_description",
+  "technical_description",
+  "advantages",
+  "prior_art",
+  "keywords",
+  "has_existing_drawings",
+];
 
 export function QuestionnaireTab({
   patentId,
@@ -723,6 +735,18 @@ export function QuestionnaireTab({
     setSubmitBusy(true);
     setError(null);
     try {
+      // Persist unsaved edits first: the backend validates the stored copy, so
+      // a field typed but never saved would be reported as missing.
+      const payload: QuestionnaireUpdateInput = {};
+      for (const f of QUESTIONNAIRE_FIELDS)
+        (payload as Record<string, unknown>)[f] = draft[f] ?? null;
+      await apiFetch<QuestionnaireOut>(
+        `/api/patents/${patentId}/questionnaire`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        },
+      );
       const updated = await apiFetch<QuestionnaireOut>(
         `/api/patents/${patentId}/questionnaire/submit`,
         { method: "POST" },
@@ -887,7 +911,12 @@ export function QuestionnaireTab({
         editable={editable}
         busy={busySection === "additional"}
         onSave={() =>
-          saveSection("additional", ["advantages", "prior_art", "keywords"])
+          saveSection("additional", [
+            "advantages",
+            "prior_art",
+            "keywords",
+            "has_existing_drawings",
+          ])
         }
       >
         <QField
