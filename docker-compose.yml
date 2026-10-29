@@ -5,9 +5,10 @@
 # gunicorn-served image and the Firebase-configured UI together instead of
 # only `uvicorn --reload` + `npm run dev`.
 #
-# Firebase (Auth, Firestore, Storage) is external: point backend/.env at a
-# Firebase project (or the Emulator Suite) before starting. There is no
-# database container any more — Firestore is the only system of record.
+# Firebase (Auth and Firestore, which also stores the documents) is external:
+# point backend/.env at a Firebase project (or the Emulator Suite) before
+# starting. There is no database container and no bucket any more — Firestore
+# is the only system of record.
 
 services:
   backend:
@@ -39,7 +40,6 @@ services:
         VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY:-}
         VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN:-}
         VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID:-}
-        VITE_FIREBASE_STORAGE_BUCKET: ${VITE_FIREBASE_STORAGE_BUCKET:-}
         VITE_FIREBASE_MESSAGING_SENDER_ID: ${VITE_FIREBASE_MESSAGING_SENDER_ID:-}
         VITE_FIREBASE_APP_ID: ${VITE_FIREBASE_APP_ID:-}
     restart: unless-stopped

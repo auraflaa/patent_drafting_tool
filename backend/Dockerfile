@@ -12,16 +12,11 @@ RUN pip install --no-cache-dir --upgrade pip \
 # --- runtime: slim image, no build toolchain, non-root user ----------------
 FROM python:3.13-slim
 
-# LibreOffice is a hard requirement for real PDF conversion (see
-# app/services/documents.py) — installed only in this stage, not the builder,
-# so the pip-install layer above stays cache-friendly and independent of this
-# apt layer. This is the single biggest contributor to final image size;
-# there's no way around it while DOCX->PDF conversion shells out to headless
-# LibreOffice rather than a pure-Python renderer. DOCX generation itself works
-# without it, and a missing `soffice` surfaces as a failed generation job
-# rather than a broken service.
+# No LibreOffice: documents are Word-only (ADR-006) and PDF uploads are
+# converted with the pure-Python `pdf2docx` dependency, so the runtime needs
+# no office suite or headless renderer.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libreoffice ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --uid 1000 appuser
@@ -48,9 +43,10 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 #
 # gunicorn as the process manager (auto-restarts a crashed worker, handles
 # graceful reload) running async Uvicorn workers underneath. All application
-# state lives in Firebase, so worker count is only a capacity decision; keep
-# it modest because each worker can spawn a LibreOffice subprocess when
-# converting DOCX to PDF. Override with `docker run ... <command>` if needed.
+# state lives in Firestore, so worker count is only a capacity decision; keep
+# it modest because a PDF conversion runs in-process and holds one worker for
+# the length of the conversion. Override with `docker run ... <command>` if
+# needed.
 CMD ["gunicorn", "app.main:app", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--workers", "2", \

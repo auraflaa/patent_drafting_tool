@@ -64,7 +64,8 @@ jobs:
 
       # Offline suite: forces empty Firebase config, so it asserts boot,
       # the mounted API contract, and the pure-Python services (RBAC catalog,
-      # stub drafts, DOCX rendering). It never reaches Auth/Firestore/Storage.
+      # stub drafts, DOCX rendering, blob compression). It never reaches Auth
+      # or Firestore.
       - name: Offline test suite
         run: python -m pytest
 
@@ -134,6 +135,7 @@ jobs:
           test -f docs/DEVELOPMENT.md
           test -f docs/DOCKER.md
           test -f docs/decisions/ADR-005-firestore-only-runtime.md
+          test -f docs/decisions/ADR-006-firestore-document-storage.md
           echo "All required docs present."
 
       - name: No stale SQL/Postgres references in the shipped code
