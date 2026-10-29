@@ -1302,11 +1302,16 @@ def create_comment(patent_id: str, payload: dict, user: dict = Depends(active_us
 CHUNK_SIZE = 64 * 1024
 
 
-async def _read_upload(upload: UploadFile) -> bytes:
-    """Read a file with a hard cap, including chunked bodies without a length."""
+def _read_upload(upload: UploadFile) -> bytes:
+    """Read a file with a hard cap, including chunked bodies without a length.
+
+    Sync on purpose: the routes that use this run CPU-bound PDF conversion and
+    blocking Firestore writes, so FastAPI must schedule them on the threadpool
+    instead of stalling the event loop on a single instance (ADR-003).
+    """
     content = bytearray()
     while True:
-        chunk = await upload.read(CHUNK_SIZE)
+        chunk = upload.file.read(CHUNK_SIZE)
         if not chunk:
             break
         content.extend(chunk)
@@ -1434,14 +1439,14 @@ def list_files(patent_id: str, user: dict = Depends(active_user)):
 
 
 @router.post("/patents/{patent_id}/files", status_code=status.HTTP_201_CREATED)
-async def upload_file(
+def upload_file(
     patent_id: str,
     upload: UploadFile = File(...),
     user: dict = Depends(active_user),
 ):
     patent = require_patent(patent_id, user)
     ensure_permission(user, "FILES_UPLOAD")
-    content = await _read_upload(upload)
+    content = _read_upload(upload)
     prepared = _prepare_upload(upload, content)
     stored = _blob_guard(
         lambda: blobs.put_blob(prepared.content, prepared.mime_type)
@@ -2037,7 +2042,7 @@ def list_templates(
 
 
 @router.post("/templates", status_code=status.HTTP_201_CREATED)
-async def upload_template(
+def upload_template(
     document_type: str = Query(...),
     activate: bool = Query(default=True),
     upload: UploadFile = File(...),
@@ -2046,7 +2051,7 @@ async def upload_template(
     ensure_permission(user, "TEMPLATES_MANAGE")
     if document_type not in docgen.DOCUMENT_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown document_type.")
-    content = await _read_upload(upload)
+    content = _read_upload(upload)
     validated = _validate_upload(upload, content, allowed=(".docx",))
     unknown, unused, parse_error = docgen.inspect_template(content)
     existing = [
