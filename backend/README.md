@@ -156,7 +156,44 @@ a real Firebase project before shipping.
 - Confirm `PATCH`/`DELETE` on another user's resource returns `403`/`404`,
   not silent success.
 
-## 8. Security notes
+## 8. Demo data (development only)
+
+`scripts/seed_demo.py` fills an empty-looking database with a realistic data
+set: 5 teams and 20 patents spanning the whole lifecycle (Draft → Submitted →
+Under Review → Draft Generated → Ready for Filing → Filed → Examination
+Requested → FER Received → Hearing Scheduled → Granted, plus Changes
+Requested, Rejected, Withdrawn, and Abandoned), questionnaires and versions,
+applicants and inventors, AI draft sections, six real DOCX documents with
+their `blobs`, comments, calendar events, notifications, activity, and
+assignment history.
+
+Four teams are shared by both accounts. **Aura Health Labs** is seeded for
+`mmanishablr@gmail.com` only, with eight additional patents that fill the
+stages its shared view does not cover — so that account has its own portfolio
+to exercise separately from the Super Admin's.
+
+```powershell
+# From backend/, with the venv active and .env pointing at the project
+python scripts/seed_demo.py --dry-run     # print the plan, write nothing
+python scripts/seed_demo.py               # create the records (idempotent)
+python scripts/seed_demo.py --reset       # delete the seeded records, then reseed
+python scripts/seed_demo.py --reset-only  # delete the seeded records and stop
+```
+
+Notes:
+
+- Both accounts must have signed in once so their `users/{uid}` profiles
+  exist. The script stops with a clear message if either is missing.
+- Every document it writes carries `demo_seed = "demo-seed-v1"` and a `demo-…`
+  id; `--reset` deletes exactly those and never touches real records. Re-running
+  the seed skips documents that already exist.
+- The script refuses to run when `ENVIRONMENT=production`.
+- It writes to the real Firestore database configured in `.env`, not an
+  emulator. Check `FIREBASE_PROJECT_ID` and `FIRESTORE_DATABASE_ID` first.
+- Seeded drafts and documents are labelled as demo content; they are still
+  drafts only and not legal advice.
+
+## 9. Security notes
 
 - The Firebase Admin SDK runs with privileged server credentials. Firestore
   Security Rules do **not** replace backend authorization for Admin SDK
