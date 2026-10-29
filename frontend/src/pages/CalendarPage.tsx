@@ -7,7 +7,7 @@ import { DashboardShell } from "../components/DashboardShell";
 import { LoadingState } from "../components/LoadingState";
 import { EmptyState } from "../components/EmptyState";
 import { useAuth } from "../context/AuthContext";
-import { apiFetch } from "../lib/api";
+import { apiFetch, getFriendlyError } from "../lib/api";
 import { ROLE_HOME, type CalendarEventOut } from "../lib/types";
 
 function formatDateTime(iso: string | null): string {
@@ -36,7 +36,9 @@ export default function CalendarPage() {
       try {
         setEvents(await apiFetch<CalendarEventOut[]>("/api/calendar/events"));
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load calendar events");
+        setError(
+          getFriendlyError("CalendarPage.loadEvents", err, "Failed to load calendar events")
+        );
       }
     })();
   }, []);

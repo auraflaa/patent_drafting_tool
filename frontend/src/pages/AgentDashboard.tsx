@@ -4,7 +4,7 @@ import { DashboardShell } from "../components/DashboardShell";
 import { StatusBadge } from "../components/StatusBadge";
 import { LoadingState } from "../components/LoadingState";
 import { EmptyState } from "../components/EmptyState";
-import { apiFetch } from "../lib/api";
+import { apiFetch, getFriendlyError } from "../lib/api";
 import type { PatentOut } from "../lib/types";
 
 export default function AgentDashboard() {
@@ -16,7 +16,9 @@ export default function AgentDashboard() {
       const data = await apiFetch<PatentOut[]>("/api/patents");
       setPatents(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load applications");
+      setError(
+        getFriendlyError("AgentDashboard.loadPatents", err, "Failed to load applications")
+      );
     }
   }
 
@@ -91,7 +93,9 @@ function AssignmentCard({ patent, onChanged }: { patent: PatentOut; onChanged: (
       await apiFetch(`/api/patents/${patent.id}/assignment/accept`, { method: "POST" });
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to accept");
+      setError(
+        getFriendlyError("AgentDashboard.accept", err, "Failed to accept")
+      );
     } finally {
       setBusy(false);
     }
@@ -107,7 +111,9 @@ function AssignmentCard({ patent, onChanged }: { patent: PatentOut; onChanged: (
       });
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reject");
+      setError(
+        getFriendlyError("AgentDashboard.reject", err, "Failed to reject")
+      );
     } finally {
       setBusy(false);
     }

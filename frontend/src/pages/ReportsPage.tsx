@@ -4,7 +4,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { LoadingState } from "../components/LoadingState";
 import { EmptyState } from "../components/EmptyState";
 import { useAuth } from "../context/AuthContext";
-import { apiDownload, apiFetch, ApiError } from "../lib/api";
+import { apiDownload, apiFetch, ApiError, getFriendlyError } from "../lib/api";
 import type { DashboardSummary, ReportOut, ReportTypeOut } from "../lib/types";
 
 export default function ReportsPage() {
@@ -48,7 +48,11 @@ function DashboardSummaryCards() {
   useEffect(() => {
     apiFetch<DashboardSummary>("/api/reports/dashboard")
       .then(setSummary)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load dashboard"));
+      .catch((err) =>
+        setError(
+          getFriendlyError("ReportsPage.dashboardSummary", err, "Failed to load dashboard")
+        )
+      );
   }, []);
 
   if (error) return <p className="text-sm text-red-600">{error}</p>;
@@ -178,7 +182,9 @@ function ReportBrowser() {
       if (err instanceof ApiError && err.status === 403) {
         setError("Your role isn't permitted to download this report — ask a Super Admin to grant it.");
       } else {
-        setError(err instanceof Error ? err.message : "Download failed");
+        setError(
+          getFriendlyError("ReportsPage.downloadReport", err, "Download failed")
+        );
       }
     } finally {
       setDownloading(false);

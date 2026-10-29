@@ -5,7 +5,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { CollaborationPanel } from "../components/CollaborationPanel";
 import { LoadingState } from "../components/LoadingState";
 import { BasicInfoTab, QuestionnaireTab } from "../components/PatentDetailTabs";
-import { apiFetch } from "../lib/api";
+import { apiFetch, getFriendlyError } from "../lib/api";
 import { type AvailableAgentOut, type PatentOut } from "../lib/types";
 
 type Tab = "basic-info" | "questionnaire" | "collaboration";
@@ -49,7 +49,9 @@ function ReassignAgentPanel({
       const data = await apiFetch<AvailableAgentOut[]>("/api/patents/available-agents");
       setAgents(data.filter((a) => a.id !== patent.assigned_patent_agent_id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load agents");
+      setError(
+        getFriendlyError("AdminPatentDetailPage.availableAgents", err, "Failed to load agents")
+      );
     }
   }
 
@@ -67,7 +69,9 @@ function ReassignAgentPanel({
       setSelectedAgentId(null);
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reassign");
+      setError(
+        getFriendlyError("AdminPatentDetailPage.reassign", err, "Failed to reassign")
+      );
     } finally {
       setBusy(false);
     }
@@ -158,7 +162,9 @@ export default function AdminPatentDetailPage() {
     apiFetch<PatentOut>(`/api/patents/${patentId}`)
       .then(setPatent)
       .catch((err) =>
-        setError(err instanceof Error ? err.message : "Failed to load patent application")
+        setError(
+          getFriendlyError("AdminPatentDetailPage.loadPatent", err, "Failed to load patent application")
+        )
       );
   }, [patentId]);
 

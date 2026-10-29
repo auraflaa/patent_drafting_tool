@@ -23,10 +23,13 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   // If a session already exists, go straight to the role's landing page.
+  // Pending accounts (awaiting admin approval) go to the pending-approval page.
   useEffect(() => {
     if (status === "approved" && user) {
       const home = user.roles.map((role) => ROLE_HOME[role]).find(Boolean) || "/";
       navigate(home, { replace: true });
+    } else if (status === "pending") {
+      navigate("/pending-approval", { replace: true });
     }
   }, [status, user, navigate]);
 

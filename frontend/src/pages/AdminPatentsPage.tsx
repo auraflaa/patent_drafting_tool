@@ -4,7 +4,7 @@ import { DashboardShell } from "../components/DashboardShell";
 import { StatusBadge } from "../components/StatusBadge";
 import { LoadingState } from "../components/LoadingState";
 import { EmptyState } from "../components/EmptyState";
-import { apiFetch } from "../lib/api";
+import { apiFetch, getFriendlyError } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { ROLE_HOME, type PatentOut } from "../lib/types";
 
@@ -32,7 +32,9 @@ export default function AdminPatentsPage() {
     apiFetch<PatentOut[]>("/api/patents")
       .then(setPatents)
       .catch((err) =>
-        setError(err instanceof Error ? err.message : "Failed to load applications")
+        setError(
+          getFriendlyError("AdminPatentsPage.loadPatents", err, "Failed to load applications")
+        )
       );
   }, []);
 

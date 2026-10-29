@@ -16,7 +16,7 @@ import {
   signOut,
   type User as FirebaseUser,
 } from "firebase/auth";
-import { apiFetch, setTokenProvider, ApiError } from "../lib/api";
+import { apiFetch, setTokenProvider, ApiError, logError } from "../lib/api";
 import { FirebaseConfigError, firebaseAuth, isFirebaseConfigured } from "../lib/firebase";
 import type { MeResponse, UserOut } from "../lib/types";
 
@@ -48,6 +48,64 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 const PENDING_ACCOUNT_STATUSES = new Set(["Pending", "Rejected", "Suspended"]);
 
+const CACHE_VERSION = 2;
+const PROFILE_CACHE_KEY = `patent-platform:profile:v${CACHE_VERSION}`;
+// Older keys are ignored; drop them so a schema change cannot resurrect them.
+const LEGACY_CACHE_KEYS = ["patent-platform:profile"];
+
+interface CachedProfile {
+  user: UserOut;
+  permissions: string[];
+  status: AuthStatus;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+/** A cache entry is untrusted input: it can be stale, edited, or half-written. */
+function isCachedProfile(value: unknown): value is CachedProfile {
+  if (!value || typeof value !== "object") return false;
+  const entry = value as { user?: unknown; permissions?: unknown; status?: unknown };
+  if (entry.status !== "approved" && entry.status !== "pending") return false;
+  if (!isStringArray(entry.permissions)) return false;
+  if (!entry.user || typeof entry.user !== "object") return false;
+  const user = entry.user as Partial<UserOut>;
+  return (
+    typeof user.id === "string" &&
+    typeof user.email === "string" &&
+    typeof user.full_name === "string" &&
+    typeof user.account_status === "string" &&
+    isStringArray(user.roles)
+  );
+}
+
+/** Read the cached profile from localStorage (if any and still valid). */
+function readCachedProfile(): CachedProfile | null {
+  try {
+    for (const key of LEGACY_CACHE_KEYS) localStorage.removeItem(key);
+    const raw = localStorage.getItem(PROFILE_CACHE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    return isCachedProfile(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the profile to localStorage so it survives page reloads. */
+function writeCachedProfile(user: UserOut | null, permissions: string[], status: AuthStatus) {
+  try {
+    if (user && (status === "approved" || status === "pending")) {
+      localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify({ user, permissions, status }));
+    } else {
+      localStorage.removeItem(PROFILE_CACHE_KEY);
+    }
+  } catch {
+    // localStorage may be unavailable (private browsing) — ignore.
+  }
+}
+
 const GOOGLE_PROVIDER = new GoogleAuthProvider();
 GOOGLE_PROVIDER.setCustomParameters({ prompt: "select_account" });
 
@@ -63,9 +121,11 @@ function shouldFallBackToRedirect(error: unknown): boolean {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<AuthStatus>("loading");
-  const [user, setUser] = useState<UserOut | null>(null);
-  const [permissions, setPermissions] = useState<string[]>([]);
+  // Lazy initialiser: localStorage is read once, not on every render.
+  const [cached] = useState(readCachedProfile);
+  const [status, setStatus] = useState<AuthStatus>(cached?.status ?? "loading");
+  const [user, setUser] = useState<UserOut | null>(cached?.user ?? null);
+  const [permissions, setPermissions] = useState<string[]>(cached?.permissions ?? []);
   const [configError, setConfigError] = useState<string | null>(
     isFirebaseConfigured() ? null : new FirebaseConfigError().message,
   );
@@ -76,6 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setPermissions([]);
     setStatus("unauthenticated");
+    writeCachedProfile(null, [], "unauthenticated");
   }, []);
 
   // Every API call asks Firebase for the current ID token, so a token that is
@@ -102,10 +163,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(me.user);
       setPermissions(me.permissions);
       setSessionError(null);
-      setStatus(
-        PENDING_ACCOUNT_STATUSES.has(me.user.account_status) ? "pending" : "approved",
-      );
+      const nextStatus = PENDING_ACCOUNT_STATUSES.has(me.user.account_status)
+        ? "pending"
+        : "approved";
+      setStatus(nextStatus);
+      writeCachedProfile(me.user, me.permissions, nextStatus);
     } catch (error) {
+      logError("loadMe", error);
       // A 401 means Firebase no longer accepts the session; anything else
       // (network, 5xx) also leaves us unable to describe the user.
       if (error instanceof ApiError && error.status === 401) {
@@ -116,9 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } else {
         setSessionError(
-          error instanceof Error
-            ? error.message
-            : "The API could not load your account. Try again shortly.",
+          "The API could not load your account. Try again shortly.",
         );
       }
       clearSession();

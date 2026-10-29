@@ -1,26 +1,30 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
-import LoginPage from "./pages/LoginPage";
-import AuthCallbackPage from "./pages/AuthCallbackPage";
-import PendingApprovalPage from "./pages/PendingApprovalPage";
-import NotAuthorizedPage from "./pages/NotAuthorizedPage";
-import InnovatorDashboard from "./pages/InnovatorDashboard";
-import PatentWorkflowPage from "./pages/PatentWorkflowPage";
-import AgentDashboard from "./pages/AgentDashboard";
-import DraftWorkspacePage from "./pages/DraftWorkspacePage";
-import AdminDashboard from "./pages/AdminDashboard";
-import AdminPatentsPage from "./pages/AdminPatentsPage";
-import AdminPatentDetailPage from "./pages/AdminPatentDetailPage";
-import SuperAdminDashboard from "./pages/SuperAdminDashboard";
-import CalendarPage from "./pages/CalendarPage";
-import ReportsPage from "./pages/ReportsPage";
+import { LoadingState } from "./components/LoadingState";
+
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const AuthCallbackPage = lazy(() => import("./pages/AuthCallbackPage"));
+const PendingApprovalPage = lazy(() => import("./pages/PendingApprovalPage"));
+const NotAuthorizedPage = lazy(() => import("./pages/NotAuthorizedPage"));
+const InnovatorDashboard = lazy(() => import("./pages/InnovatorDashboard"));
+const PatentWorkflowPage = lazy(() => import("./pages/PatentWorkflowPage"));
+const AgentDashboard = lazy(() => import("./pages/AgentDashboard"));
+const DraftWorkspacePage = lazy(() => import("./pages/DraftWorkspacePage"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const AdminPatentsPage = lazy(() => import("./pages/AdminPatentsPage"));
+const AdminPatentDetailPage = lazy(() => import("./pages/AdminPatentDetailPage"));
+const SuperAdminDashboard = lazy(() => import("./pages/SuperAdminDashboard"));
+const CalendarPage = lazy(() => import("./pages/CalendarPage"));
+const ReportsPage = lazy(() => import("./pages/ReportsPage"));
 
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Routes>
+        <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-50"><LoadingState label="Loading page…" /></div>}>
+          <Routes>
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
@@ -159,6 +163,7 @@ export default function App() {
             }
           />
         </Routes>
+        </Suspense>
       </AuthProvider>
     </BrowserRouter>
   );
