@@ -244,12 +244,10 @@ def test_capabilities_are_public_and_describe_the_limits(client: TestClient) -> 
         "deployment_target",
         "max_upload_size_bytes",
         "max_request_body_bytes",
-        "pdf_generation_enabled",
     }
     assert body["deployment_target"] in {"self_hosted", "vercel"}
     assert body["max_upload_size_bytes"] > 0
     assert body["max_request_body_bytes"] >= body["max_upload_size_bytes"]
-    assert isinstance(body["pdf_generation_enabled"], bool)
     assert response.headers["cache-control"] == "no-store"
 
 
@@ -415,48 +413,20 @@ def test_read_upload_stops_one_chunk_past_the_limit(
     assert exc.value.status_code == 413
 
 
-def test_pdf_defaults_safely_per_deployment_target() -> None:
-    vercel = Settings(deployment_target="vercel", _env_file=None)
-    assert vercel.pdf_generation_enabled is False
-
-    local = Settings(deployment_target="self_hosted", _env_file=None)
-    assert local.pdf_generation_enabled is True
-
-    # An explicit value overrides the profile in both directions.
-    assert (
-        Settings(
-            deployment_target="vercel",
-            pdf_conversion_enabled=True,
-            _env_file=None,
-        ).pdf_generation_enabled
-        is True
-    )
-    assert (
-        Settings(
-            deployment_target="self_hosted",
-            pdf_conversion_enabled=False,
-            _env_file=None,
-        ).pdf_generation_enabled
-        is False
-    )
-
-
-def test_pdf_gate_rejects_pdf_when_conversion_is_disabled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_documents_are_word_only_and_pdf_output_is_rejected() -> None:
     from app.api import resources
-    from app.core.config import settings
 
-    monkeypatch.setattr(settings, "pdf_conversion_enabled", False)
+    resources._ensure_format_supported("DOCX")
+
     with pytest.raises(HTTPException) as exc:
         resources._ensure_format_supported("PDF")
     assert exc.value.status_code == 400
     assert "DOCX" in str(exc.value.detail)
 
-    # DOCX still works, and unknown formats stay rejected either way.
-    resources._ensure_format_supported("DOCX")
-    with pytest.raises(HTTPException):
+    with pytest.raises(HTTPException) as unknown:
         resources._ensure_format_supported("ODT")
+    assert unknown.value.status_code == 400
+    assert "DOCX" in str(unknown.value.detail)
 
 
 def test_chunks_streams_and_closes_the_blob() -> None:
@@ -476,30 +446,6 @@ def test_chunks_streams_and_closes_the_blob() -> None:
     stream = FakeStream(b"a" * 10)
     assert b"".join(resources._chunks(stream, chunk_size=4)) == b"a" * 10
     assert stream.closed
-
-
-def test_capabilities_hide_pdf_when_libreoffice_is_missing(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from app.api import resources
-
-    monkeypatch.setattr(resources.docgen, "pdf_available", lambda: False)
-    body = client.get("/api/config/capabilities").json()
-    assert body["pdf_generation_enabled"] is False
-
-
-def test_pdf_gate_reports_missing_libreoffice(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from app.api import resources
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "pdf_conversion_enabled", True)
-    monkeypatch.setattr(resources.docgen, "pdf_available", lambda: False)
-    with pytest.raises(HTTPException) as exc:
-        resources._ensure_format_supported("PDF")
-    assert exc.value.status_code == 400
-    assert "LibreOffice" in str(exc.value.detail)
 
 
 def test_inline_service_account_json_is_validated() -> None:
@@ -858,10 +804,10 @@ def test_firebase_recovers_from_a_failed_client_initialisation(
 ) -> None:
     from app.core import firebase
 
-    original = (firebase._app, firebase._db, firebase._bucket)
+    original = (firebase._app, firebase._db)
     calls = {"count": 0}
 
-    def flaky_client(app):
+    def flaky_client(app, **kwargs):
         calls["count"] += 1
         if calls["count"] == 1:
             raise RuntimeError("credentials unavailable")
@@ -870,7 +816,6 @@ def test_firebase_recovers_from_a_failed_client_initialisation(
     try:
         firebase._app = object()
         firebase._db = None
-        firebase._bucket = None
         monkeypatch.setattr(firebase.firestore, "client", flaky_client)
 
         with pytest.raises(RuntimeError):
@@ -880,7 +825,7 @@ def test_firebase_recovers_from_a_failed_client_initialisation(
         firebase.initialize_firebase()
         assert firebase._db == "db-sentinel"
     finally:
-        firebase._app, firebase._db, firebase._bucket = original
+        firebase._app, firebase._db = original
 
 
 def test_resource_text_fields_are_bounded_and_typed() -> None:

@@ -6,10 +6,14 @@ Firestore stores lowercase internal state; everything is normalised here so
 routers stay thin and the UI did not need a contract rewrite.
 """
 from datetime import datetime, timedelta, timezone
+import logging
 
 from app.core.firebase import db
+from app.core.logging import log_event
 from app.core.security import is_admin
 from app.services.repository import create_doc, list_docs, now_iso
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Lifecycle constants
@@ -92,7 +96,13 @@ def member_team_ids(uid: str) -> set[str]:
             parent = snap.reference.parent.parent
             if parent is not None:
                 ids.add(parent.id)
-    except Exception:  # noqa: BLE001 - empty/misconfigured project
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "member_team_ids_failed",
+            error_type=type(exc).__name__,
+        )
         return ids
     return ids
 
@@ -417,6 +427,8 @@ def file_out(doc: dict, user: dict | None) -> dict:
         "uploaded_by": doc.get("uploaded_by"),
         "uploaded_by_name": (user or {}).get("full_name") or None,
         "original_file_name": doc.get("original_file_name"),
+        "source_file_name": doc.get("source_file_name"),
+        "converted_from_pdf": bool(doc.get("converted_from_pdf")),
         "mime_type": doc.get("mime_type"),
         "file_size_bytes": doc.get("file_size_bytes"),
         "created_at": _iso(doc.get("created_at")),

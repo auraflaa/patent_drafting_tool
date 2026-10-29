@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # Inline JSON for hosts that cannot mount a file (Vercel, Cloud Run secrets).
     # Takes precedence over the path; store it in the platform's secret manager.
     firebase_service_account_json: str = Field(default='', repr=False)
-    firebase_storage_bucket: str = ''
+    firestore_database_id: str = ''
     firebase_emulator_host: str = ''
     bootstrap_admin_email: str = ''
     cors_origins: str = 'http://localhost:5173,http://127.0.0.1:5173'
@@ -34,12 +34,9 @@ class Settings(BaseSettings):
     deployment_target: Literal['self_hosted', 'vercel'] = 'self_hosted'
     # 0 means "use the deployment target's default".
     max_upload_size_bytes: int = Field(default=0, ge=0)
-    # PDF conversion shells out to LibreOffice, which serverless Python
-    # runtimes do not ship. Unset means "on except on Vercel"; set it
-    # explicitly to override either way.
-    pdf_conversion_enabled: bool | None = None
     # Allowlist, not a deny-list: an extension is accepted only when it is
     # listed here, and the bytes are then checked against the extension.
+    # PDFs are accepted and converted to DOCX before storage (ADR-006).
     allowed_upload_extensions: str = (
         '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.txt,.csv,.md,.rtf,'
         '.png,.jpg,.jpeg,.gif,.webp,.tif,.tiff'
@@ -77,20 +74,12 @@ class Settings(BaseSettings):
             limit = min(limit, VERCEL_BODY_LIMIT_BYTES)
         return limit
 
-    @property
-    def pdf_generation_enabled(self) -> bool:
-        """Whether this deployment can shell out to LibreOffice."""
-        if self.pdf_conversion_enabled is not None:
-            return self.pdf_conversion_enabled
-        return self.deployment_target != 'vercel'
-
     def capabilities(self) -> dict:
         """Public runtime limits the frontend uses to fail fast and adapt."""
         return {
             'deployment_target': self.deployment_target,
             'max_upload_size_bytes': self.upload_limit_bytes,
             'max_request_body_bytes': self.request_body_limit_bytes,
-            'pdf_generation_enabled': self.pdf_generation_enabled,
         }
 
 

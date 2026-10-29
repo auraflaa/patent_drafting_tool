@@ -19,7 +19,6 @@ if str(BACKEND_ROOT) not in sys.path:
 
 # Must be set before `app.core.config` is imported anywhere.
 os.environ["FIREBASE_PROJECT_ID"] = ""
-os.environ["FIREBASE_STORAGE_BUCKET"] = ""
 os.environ["FIREBASE_EMULATOR_HOST"] = ""
 os.environ["FIREBASE_SERVICE_ACCOUNT_PATH"] = str(
     BACKEND_ROOT / "secrets" / "does-not-exist.json"

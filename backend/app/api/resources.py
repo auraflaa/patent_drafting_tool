@@ -1,16 +1,16 @@
 """Firestore-backed resource API.
 
 Every endpoint the React client calls is implemented here against Firebase
-Auth/Firestore/Storage. Response shapes intentionally match the original
-snake_case REST contract (string IDs, Title-Case lifecycle statuses,
-`roles`, `invention_title`, ...) so the existing UI keeps working without a
+Auth and Firestore, which also stores the compressed document bytes
+(ADR-006). Response shapes intentionally match the original snake_case REST
+contract (string IDs, Title-Case lifecycle statuses, `roles`,
+`invention_title`, ...) so the existing UI keeps working without a
 parallel compatibility layer.
 """
 import csv
 import io
 import logging
-import re
-import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePath
 from urllib.parse import quote
@@ -38,6 +38,7 @@ from app.core.security import (
     is_admin,
     is_super_admin,
 )
+from app.services import blobs
 from app.services import documents as docgen
 from app.services import drafting
 from app.services import uploads
@@ -101,13 +102,6 @@ from app.services.repository import (
     set_latest_version,
     sort_docs,
 )
-from app.services.storage import (
-    StorageError,
-    delete_path,
-    open_stream,
-    put_bytes,
-    read_bytes,
-)
 
 router = APIRouter()
 
@@ -120,8 +114,6 @@ DOCUMENT_TYPE = "Patent Application"
 def runtime_capabilities(response: Response):
     """Public runtime limits; the UI uses these to fail fast and adapt."""
     capabilities = settings.capabilities()
-    if capabilities["pdf_generation_enabled"]:
-        capabilities["pdf_generation_enabled"] = docgen.pdf_available()
     response.headers["Cache-Control"] = "no-store"
     return capabilities
 
@@ -1315,16 +1307,64 @@ def _validate_upload(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
-def _storage_guard(operation):
+@dataclass(frozen=True)
+class _PreparedUpload:
+    """An upload after validation and any PDF→Word conversion."""
+
+    filename: str
+    mime_type: str
+    content: bytes
+    converted_from_pdf: bool
+    source_filename: str | None
+
+
+def _prepare_upload(upload: UploadFile, content: bytes) -> _PreparedUpload:
+    """Validate the upload and convert PDFs to Word before storage.
+
+    PDFs are never stored: the bytes are converted in-process and the
+    resulting DOCX is what reaches Firestore. Other allowed attachment types
+    are stored unchanged, still compressed (ADR-006).
+    """
+    validated = _validate_upload(upload, content)
+    if validated.extension != ".pdf":
+        return _PreparedUpload(
+            filename=validated.filename,
+            mime_type=validated.mime_type,
+            content=content,
+            converted_from_pdf=False,
+            source_filename=None,
+        )
+    try:
+        converted = docgen.pdf_to_docx(content)
+    except docgen.DocumentGenerationError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return _PreparedUpload(
+        filename=uploads.sanitize_filename(
+            f"{PurePath(validated.filename).stem}.docx"
+        ),
+        mime_type=docgen.DOCX_MIME,
+        content=converted,
+        converted_from_pdf=True,
+        source_filename=validated.filename,
+    )
+
+
+def _blob_guard(operation):
     try:
         return operation()
-    except StorageError as exc:
-        # Storage errors can carry bucket names and upstream status text.
+    except blobs.BlobTooLarge as exc:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(exc)) from exc
+    except blobs.BlobNotFound as exc:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "No stored file is available."
+        ) from exc
+    except blobs.BlobError as exc:
+        # Provider errors can carry project ids and upstream status text.
         # Log the detail and show the caller a stable, non-identifying message.
         log_event(
             logger,
             logging.WARNING,
-            "storage_operation_failed",
+            "blob_operation_failed",
             error_type=type(exc).__name__,
         )
         raise HTTPException(
@@ -1344,12 +1384,16 @@ def _chunks(stream, chunk_size: int = CHUNK_SIZE):
         stream.close()
 
 
-def _stream_response(path: str, media_type: str, headers: dict) -> StreamingResponse:
-    stream = _storage_guard(lambda: open_stream(path))
+def _download_response(
+    blob_id: str | None, media_type: str, headers: dict
+) -> StreamingResponse:
+    content = _blob_guard(lambda: blobs.read_blob(blob_id))
+    response_headers = dict(headers)
+    response_headers.setdefault("Content-Length", str(len(content)))
     return StreamingResponse(
-        _chunks(stream),
+        _chunks(io.BytesIO(content)),
         media_type=media_type,
-        headers=headers,
+        headers=response_headers,
     )
 
 
@@ -1371,22 +1415,29 @@ async def upload_file(
     patent = require_patent(patent_id, user)
     ensure_permission(user, "FILES_UPLOAD")
     content = await _read_upload(upload)
-    validated = _validate_upload(upload, content)
-    path = f"patents/{patent_id}/files/{uuid.uuid4().hex}{validated.extension}"
-    _storage_guard(
-        lambda: put_bytes(path, content, validated.mime_type)
+    prepared = _prepare_upload(upload, content)
+    stored = _blob_guard(
+        lambda: blobs.put_blob(prepared.content, prepared.mime_type)
     )
-    record = create_doc(
-        "files",
-        {
-            "patent_application_id": patent_id,
-            "uploaded_by": user["uid"],
-            "original_file_name": validated.filename,
-            "stored_path": path,
-            "mime_type": validated.mime_type,
-            "file_size_bytes": len(content),
-        },
-    )
+    try:
+        record = create_doc(
+            "files",
+            {
+                "patent_application_id": patent_id,
+                "uploaded_by": user["uid"],
+                "original_file_name": prepared.filename,
+                "source_file_name": prepared.source_filename,
+                "converted_from_pdf": prepared.converted_from_pdf,
+                "blob_id": stored["id"],
+                "mime_type": prepared.mime_type,
+                "file_size_bytes": stored["size_bytes"],
+                "stored_size_bytes": stored["stored_bytes"],
+            },
+        )
+    except Exception:
+        # Do not leave an orphaned blob if the metadata row cannot be written.
+        blobs.delete_blob(stored["id"])
+        raise
     notify_many(
         patent_participants(patent), patent_id, "FileUploaded", exclude=user["uid"]
     )
@@ -1400,8 +1451,8 @@ def download_file(patent_id: str, file_id: str, user: dict = Depends(active_user
     record = get_doc("files", file_id)
     if record.get("patent_application_id") != patent_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found.")
-    return _stream_response(
-        record.get("stored_path") or "",
+    return _download_response(
+        record.get("blob_id"),
         record.get("mime_type") or "application/octet-stream",
         _content_disposition(record.get("original_file_name") or "download"),
     )
@@ -1409,7 +1460,7 @@ def download_file(patent_id: str, file_id: str, user: dict = Depends(active_user
 
 @router.delete("/patents/{patent_id}/files/{file_id}")
 def delete_file(patent_id: str, file_id: str, user: dict = Depends(active_user)):
-    require_patent(patent_id, user)
+    patent = require_patent(patent_id, user)
     record = get_doc("files", file_id)
     if record.get("patent_application_id") != patent_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found.")
@@ -1421,7 +1472,7 @@ def delete_file(patent_id: str, file_id: str, user: dict = Depends(active_user))
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "You cannot delete this file."
         )
-    _storage_guard(lambda: delete_path(record.get("stored_path") or ""))
+    blobs.delete_blob(record.get("blob_id"))
     delete_doc("files", file_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -1550,21 +1601,22 @@ def _active_template(document_type: str) -> dict | None:
 
 
 def _ensure_format_supported(output_format: str) -> None:
-    """Reject formats this deployment cannot produce before queueing a job."""
-    if output_format not in {"PDF", "DOCX"}:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "output_format must be PDF or DOCX."
-        )
-    if output_format == "PDF" and not settings.pdf_generation_enabled:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "PDF generation is disabled on this deployment. Generate a DOCX instead.",
-        )
-    if output_format == "PDF" and not docgen.pdf_available():
+    """Reject formats this deployment cannot store before queueing a job.
+
+    Documents are Word-only (ADR-006): PDF output was retired because the
+    bytes now live in Firestore, where a scanned PDF would not fit, and
+    every PDF upload is converted to DOCX on the way in.
+    """
+    if output_format == "PDF":
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "PDF conversion requires LibreOffice on the API host. "
-            "Generate a DOCX instead.",
+            "PDF output is no longer supported. Documents are generated as "
+            "DOCX; open the DOCX in a word processor to export a PDF if you "
+            "need one.",
+        )
+    if output_format != "DOCX":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "output_format must be DOCX."
         )
 
 
@@ -1674,16 +1726,18 @@ def _run_generation(
         template_doc = _active_template(DOCUMENT_TYPE)
         template_bytes = None
         if template_doc:
-            template_bytes = _storage_guard(
-                lambda: read_bytes(template_doc.get("file_path") or "")
-            )
+            try:
+                template_bytes = blobs.read_blob(template_doc.get("file_path"))
+            except blobs.BlobNotFound as exc:
+                raise docgen.DocumentGenerationError(
+                    "The active DOCX template is missing. Ask an administrator "
+                    "to re-upload it."
+                ) from exc
         docx = docgen.render_docx(patent, sections, template_bytes)
-        if output_format == "PDF":
-            content = docgen.docx_to_pdf(docx)
-            extension = "pdf"
-        else:
-            content = docx
-            extension = "docx"
+        try:
+            stored = blobs.put_blob(docx, docgen.DOCX_MIME)
+        except blobs.BlobTooLarge as exc:
+            raise docgen.DocumentGenerationError(str(exc)) from exc
 
         documents = query_docs(
             "documents", filters=[("patent_application_id", "==", patent_id)]
@@ -1715,24 +1769,14 @@ def _run_generation(
             f"{patent_id}:{output_format}:{DOCUMENT_TYPE}",
             floor=previous_max,
         )
-        path = (
-            f"documents/{patent_id}/{output_format.lower()}/v{version_number}.{extension}"
-        )
-        _storage_guard(
-            lambda: put_bytes(
-                path,
-                content,
-                "application/pdf"
-                if extension == "pdf"
-                else "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            )
-        )
         stamp = _now()
         document_fields = {
             "template_id": (template_doc or {}).get("id"),
             "generated_by": user["uid"],
             "generated_at": stamp,
-            "stored_path": path,
+            "stored_path": stored["id"],
+            "file_size_bytes": stored["size_bytes"],
+            "stored_size_bytes": stored["stored_bytes"],
         }
         if document is None:
             # Deterministic ID: two first-time generations that race would
@@ -1762,7 +1806,9 @@ def _run_generation(
                 "change_summary": f"Generated {output_format}",
                 "generated_by": user["uid"],
                 "generated_at": stamp,
-                "storage_path": path,
+                "storage_path": stored["id"],
+                "file_size_bytes": stored["size_bytes"],
+                "stored_size_bytes": stored["stored_bytes"],
             },
         )
         current_status = patent.get("application_status")
@@ -1786,7 +1832,8 @@ def _run_generation(
                 "completed_at": _now(),
             },
         )
-    except Exception as exc:  # noqa: BLE001 - recorded on the job for the UI
+    except Exception as exc:
+        # Recorded on the job so the UI can show why the document failed.
         if not isinstance(exc, docgen.DocumentGenerationError):
             log_event(
                 logger,
@@ -1900,16 +1947,13 @@ def download_document(
     document = get_doc("documents", document_id)
     if document.get("patent_application_id") != patent_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
-    path = document.get("stored_path")
-    if not path:
+    blob_id = document.get("stored_path")
+    if not blob_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No generated file is available.")
-    extension = "pdf" if document.get("output_format") == "PDF" else "docx"
-    return _stream_response(
-        path,
-        "application/pdf"
-        if extension == "pdf"
-        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        _content_disposition(f"patent-document.{extension}"),
+    return _download_response(
+        blob_id,
+        docgen.DOCX_MIME,
+        _content_disposition("patent-document.docx"),
     )
 
 
@@ -1925,17 +1969,14 @@ def download_document_version(
     document = get_doc("documents", version.get("document_id"))
     if document.get("patent_application_id") != patent_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document version not found.")
-    extension = "pdf" if document.get("output_format") == "PDF" else "docx"
-    path = version.get("storage_path")
-    if not path:
+    blob_id = version.get("storage_path")
+    if not blob_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No generated file is available.")
-    return _stream_response(
-        path,
-        "application/pdf"
-        if extension == "pdf"
-        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    return _download_response(
+        blob_id,
+        docgen.DOCX_MIME,
         _content_disposition(
-            f"patent-document-v{version.get('version_number')}.{extension}"
+            f"patent-document-v{version.get('version_number')}.docx"
         ),
     )
 
@@ -1993,32 +2034,31 @@ async def upload_template(
             [int(doc.get("version_number") or 0) for doc in existing] or [0]
         ),
     )
-    path = f"templates/{re.sub(r'[^a-z0-9]+', '-', document_type.lower())}/v{version_number}.docx"
-    _storage_guard(
-        lambda: put_bytes(
-            path,
-            content,
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        )
-    )
+    stored = _blob_guard(lambda: blobs.put_blob(content, docgen.DOCX_MIME))
     if activate:
         for doc in existing:
             if doc.get("is_active"):
                 patch_doc("templates", doc["id"], {"is_active": False})
-    record = create_doc(
-        "templates",
-        {
-            "document_type": document_type,
-            "version_number": version_number,
-            "file_path": path,
-            "original_file_name": validated.filename,
-            "is_active": activate,
-            "edited_by": user["uid"],
-            "unknown_placeholders": unknown,
-            "unused_known_placeholders": unused,
-            "template_parse_error": parse_error,
-        },
-    )
+    try:
+        record = create_doc(
+            "templates",
+            {
+                "document_type": document_type,
+                "version_number": version_number,
+                "file_path": stored["id"],
+                "original_file_name": validated.filename,
+                "file_size_bytes": stored["size_bytes"],
+                "stored_size_bytes": stored["stored_bytes"],
+                "is_active": activate,
+                "edited_by": user["uid"],
+                "unknown_placeholders": unknown,
+                "unused_known_placeholders": unused,
+                "template_parse_error": parse_error,
+            },
+        )
+    except Exception:
+        blobs.delete_blob(stored["id"])
+        raise
     log_activity(user["uid"], "TemplateUploaded", "Template", record["id"])
     return template_out(record, user)
 
@@ -2040,7 +2080,7 @@ def activate_template(template_id: str, user: dict = Depends(active_user)):
 def delete_template(template_id: str, user: dict = Depends(active_user)):
     ensure_permission(user, "TEMPLATES_MANAGE")
     template = get_doc("templates", template_id)
-    _storage_guard(lambda: delete_path(template.get("file_path") or ""))
+    blobs.delete_blob(template.get("file_path"))
     delete_doc("templates", template_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

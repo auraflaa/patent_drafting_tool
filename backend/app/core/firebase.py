@@ -4,12 +4,11 @@ import os
 from pathlib import Path
 from typing import Any
 import firebase_admin
-from firebase_admin import credentials, firestore, auth, storage
+from firebase_admin import credentials, firestore, auth
 from app.core.config import settings
 
 _app = None
 _db = None
-_bucket = None
 
 class FirebaseNotConfigured(RuntimeError):
     pass
@@ -39,7 +38,7 @@ def _credentials_from_json(raw: str):
 
 
 def initialize_firebase():
-    global _app, _db, _bucket
+    global _app, _db
     if settings.firebase_emulator_host:
         os.environ['FIRESTORE_EMULATOR_HOST'] = settings.firebase_emulator_host
     if _app is None:
@@ -50,8 +49,6 @@ def initialize_firebase():
             options: dict[str, Any] = {}
             if settings.firebase_project_id:
                 options['projectId'] = settings.firebase_project_id
-            if settings.firebase_storage_bucket:
-                options['storageBucket'] = settings.firebase_storage_bucket
             inline_credentials = _credentials_from_json(
                 settings.firebase_service_account_json
             )
@@ -67,22 +64,13 @@ def initialize_firebase():
     # A failure above must not leave a half-initialised module: the next call
     # retries the missing client instead of returning None from db().
     if _db is None:
-        _db = firestore.client(_app)
-    if _bucket is None and settings.firebase_storage_bucket:
-        _bucket = storage.bucket(app=_app)
+        _db = firestore.client(_app, database_id=settings.firestore_database_id or None)
     return _app
 
 def db():
     if _db is None:
         initialize_firebase()
     return _db
-
-def bucket():
-    if _bucket is None:
-        initialize_firebase()
-        if _bucket is None:
-            raise FirebaseNotConfigured('Set FIREBASE_STORAGE_BUCKET in .env to enable file storage.')
-    return _bucket
 
 def verify_id_token(token: str) -> dict:
     initialize_firebase()

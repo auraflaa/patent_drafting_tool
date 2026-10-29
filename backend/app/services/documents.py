@@ -1,16 +1,16 @@
-"""DOCX assembly and PDF conversion for generated patent documents.
+"""DOCX assembly and PDF import for generated patent documents.
 
 The built-in layout is always available. When an active `.docx` template
 exists for the document type, `docxtpl` renders the documented placeholders
 in that template instead (letterhead/layout stays under the template
-author's control). PDF output shells out to headless LibreOffice, which the
-Docker image installs.
+author's control).
+
+Every stored document is Word format: generated output is always DOCX, and
+uploaded PDFs are converted to DOCX with `pdf2docx` before they reach
+Firestore. No PDF is ever stored.
 """
 import io
 import logging
-import os
-import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 
@@ -21,6 +21,14 @@ from app.core.logging import log_event
 from app.services.uploads import UploadValidationError, assert_safe_docx
 
 logger = logging.getLogger(__name__)
+
+DOCX_MIME = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+)
+
+# A conversion runs in-process and cannot be interrupted safely, so bound the
+# work before it starts. Patent specifications are well under this.
+MAX_PDF_PAGES = 100
 
 SECTION_ORDER = (
     ("ABSTRACT", "Abstract"),
@@ -86,7 +94,7 @@ def inspect_template(content: bytes) -> tuple[list[str], list[str], str | None]:
 
         template = DocxTemplate(io.BytesIO(content))
         used = set(template.get_undeclared_template_variables())
-    except Exception as exc:  # noqa: BLE001 - reported to the uploader
+    except Exception as exc:
         return [], [], str(exc)
     unknown = sorted(v for v in used if v not in KNOWN_PLACEHOLDERS)
     unused = sorted(v for v in KNOWN_PLACEHOLDERS if v not in used)
@@ -141,7 +149,7 @@ def render_docx(patent: dict, sections: dict, template: bytes | None) -> bytes:
             buffer = io.BytesIO()
             document.save(buffer)
             return buffer.getvalue()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log_event(
                 logger,
                 logging.WARNING,
@@ -155,71 +163,84 @@ def render_docx(patent: dict, sections: dict, template: bytes | None) -> bytes:
     return _render_builtin(patent, sections)
 
 
-def pdf_available() -> bool:
-    """True when a LibreOffice binary is available for DOCX→PDF conversion."""
-    return _soffice_binary() is not None
+def pdf_to_docx(content: bytes) -> bytes:
+    """Convert an uploaded PDF to DOCX entirely in-process.
 
-
-def _soffice_binary() -> str | None:
-    for candidate in ("soffice", "libreoffice"):
-        found = shutil.which(candidate)
-        if found:
-            return found
-    # Common Windows install locations during local development.
-    for candidate in (
-        r"C:\Program Files\LibreOffice\program\soffice.exe",
-        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
-    ):
-        if Path(candidate).is_file():
-            return candidate
-    return None
-
-
-def docx_to_pdf(content: bytes) -> bytes:
-    binary = _soffice_binary()
-    if not binary:
+    `pdf2docx` is a pure-Python dependency (PyMuPDF + python-docx), so this
+    works on every deployment target, including serverless hosts without
+    LibreOffice. The converted file is validated as a DOCX before it is
+    stored, and conversion failures surface as a curated 400 to the caller.
+    """
+    root = logging.getLogger()
+    try:
+        import fitz  # PyMuPDF, installed with pdf2docx
+    except ImportError as exc:
         raise DocumentGenerationError(
-            "PDF conversion requires LibreOffice (`soffice`). Install it locally "
-            "or use the Docker image, which includes it. DOCX generation works "
-            "without it."
+            "PDF import is not available on this server. Upload a DOCX instead."
+        ) from exc
+    try:
+        with fitz.open(stream=content, filetype="pdf") as pdf:
+            if pdf.needs_pass:
+                raise DocumentGenerationError(
+                    "The PDF is password-protected. Remove the password and "
+                    "upload it again."
+                )
+            pages = pdf.page_count
+    except DocumentGenerationError:
+        raise
+    except Exception as exc:
+        raise DocumentGenerationError(
+            "The PDF could not be read. It may be damaged or not a real PDF."
+        ) from exc
+    if pages == 0:
+        raise DocumentGenerationError("The PDF has no pages.")
+    if pages > MAX_PDF_PAGES:
+        raise DocumentGenerationError(
+            f"The PDF has {pages} pages; this deployment converts at most "
+            f"{MAX_PDF_PAGES} pages per file."
         )
+
     with tempfile.TemporaryDirectory(prefix="patent-pdf-") as folder:
-        source = Path(folder) / "document.docx"
+        source = Path(folder) / "source.pdf"
+        target = Path(folder) / "converted.docx"
         source.write_bytes(content)
-        environment = dict(os.environ)
-        environment.setdefault("HOME", folder)
+        # pdf2docx calls logging.basicConfig(level=INFO) at import and logs
+        # through the root logger. Restore the level so API logs stay clean.
+        previous_level = root.level
         try:
-            result = subprocess.run(
-                [
-                    binary,
-                    "--headless",
-                    "--norestore",
-                    "--convert-to",
-                    "pdf",
-                    "--outdir",
-                    folder,
-                    str(source),
-                ],
-                capture_output=True,
-                timeout=120,
-                check=False,
-                env=environment,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise DocumentGenerationError("PDF conversion timed out.") from exc
-        target = Path(folder) / "document.pdf"
-        if result.returncode != 0 or not target.is_file():
-            detail = (result.stderr or result.stdout or b"").decode(
-                "utf-8", errors="replace"
-            )[:400]
+            from pdf2docx import Converter
+
+            root.setLevel(previous_level)
+            converter = Converter(str(source))
+            try:
+                converter.convert(str(target))
+            finally:
+                converter.close()
+        except DocumentGenerationError:
+            raise
+        except Exception as exc:
             log_event(
                 logger,
                 logging.WARNING,
-                "libreoffice_conversion_failed",
-                exit_code=result.returncode,
-                detail=detail,
+                "pdf_conversion_failed",
+                error_type=type(exc).__name__,
             )
             raise DocumentGenerationError(
-                "LibreOffice could not convert the DOCX. Check the server logs."
+                "The PDF could not be converted to Word. Try a different "
+                "PDF, or upload a DOCX instead."
+            ) from exc
+        finally:
+            root.setLevel(previous_level)
+        if not target.is_file() or target.stat().st_size == 0:
+            raise DocumentGenerationError(
+                "The PDF conversion produced no document. Try a different PDF."
             )
-        return target.read_bytes()
+        converted = target.read_bytes()
+
+    try:
+        assert_safe_docx(converted)
+    except UploadValidationError as exc:
+        raise DocumentGenerationError(
+            "The PDF converted to an unsafe Word document, so it was rejected."
+        ) from exc
+    return converted
