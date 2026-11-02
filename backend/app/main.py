@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from app.core.config import settings
 from app.core.errors import UnhandledErrorMiddleware
-from app.core.firebase import initialize_firebase
+from app.core.firebase import FirestoreUnavailable, firestore_ping, initialize_firebase
 from app.core.headers import SecurityHeadersMiddleware
 from app.core.limits import RequestBodyLimitMiddleware
 from app.core.logging import RequestIDMiddleware, configure_logging
@@ -83,11 +83,33 @@ def root():
 @app.get('/health', tags=['health'])
 def health(request: Request):
     try:
-        from app.core.firebase import db
-        db().collection('_health').limit(1).get()
+        # Bounded and unretried: a wedged Firestore channel must not hold this
+        # route for the SDK's five-minute default. A failed probe also recycles
+        # the cached client, so the next real request opens a fresh channel.
+        firestore_ping()
         return {'status': 'ok', 'firebase': 'connected', 'environment': settings.environment}
     except Exception as exc:
         return JSONResponse(status_code=503, content={'status': 'degraded', 'firebase': 'not_configured_or_unreachable', 'detail': str(exc) if settings.environment != 'production' else 'Firebase unavailable', 'environment': settings.environment})
+
+
+@app.exception_handler(FirestoreUnavailable)
+def firestore_unavailable(request: Request, exc: FirestoreUnavailable):
+    """A datastore outage is retryable, not a broken server.
+
+    500 tells the client nothing and reads as a bug; 503 tells it to try again,
+    which the UI already renders as "try again shortly" instead of signing the
+    user out.
+    """
+    logger.warning(
+        "firestore_unavailable",
+        extra={'path': request.url.path, 'error_type': type(exc).__name__},
+    )
+    return JSONResponse(
+        status_code=503,
+        content={
+            'detail': 'The datastore is temporarily unreachable. Please try again.'
+        },
+    )
 
 app.include_router(auth_router, prefix='/api/auth', tags=['Authentication'])
 app.include_router(resources_router, prefix='/api', tags=['Patent Platform'])
