@@ -1,12 +1,14 @@
 // Templates admin panel (NEW — closes open item #24 from the handover:
 // there was previously no Templates UI and no real merging). Lets
-// Admin/Super Admin upload a .docx per document_type, see the full
+// Admin/Super Admin upload a .docx or .pdf per document_type, see the full
 // version history, activate an older version, or delete a non-active one.
+// PDFs are converted to Word on the server before they are stored.
 //
-// The uploaded .docx is the source of truth for layout/letterhead — this
+// The uploaded file is the source of truth for layout/letterhead — this
 // UI only manages which file is active per document_type; the actual
 // Jinja-in-DOCX merge happens server-side in backend/app/services/documents.py
-// via docxtpl. Placeholders the template author can use:
+// via docxtpl. When no version is active, generation uses the bundled
+// Form_1_Patent_Application.docx. Placeholders a template can use:
 // {{ TITLE }} {{ WATERMARK_TEXT }} {{ ABSTRACT }} {{ BACKGROUND }}
 // {{ SUMMARY }} {{ DESCRIPTION }} {{ CLAIMS }}
 
