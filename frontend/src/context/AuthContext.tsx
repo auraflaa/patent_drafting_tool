@@ -154,7 +154,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setTokenProvider(async () => {
       try {
-        const current = firebaseAuth().currentUser;
+        const auth = firebaseAuth();
+        // On a reload the cached profile renders the app before Firebase has
+        // restored its persisted session. Wait for that restore, otherwise the
+        // first requests go out without a token, get a 401, and the 401 handler
+        // signs the user out.
+        await auth.authStateReady();
+        const current = auth.currentUser;
         return current ? await current.getIdToken() : null;
       } catch {
         return null;
