@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
-from app.core.firebase import db
 from app.core.security import (
     active_user,
     current_user,
@@ -17,7 +16,13 @@ from app.core.security import (
 )
 from app.services.projections import log_activity, user_out
 from app.services.rbac import ALL_ROLE_CODES
-from app.services.repository import get_doc, list_docs, now_iso, sort_docs
+from app.services.repository import (
+    get_doc,
+    list_docs,
+    now_iso,
+    sort_docs,
+    write_doc,
+)
 
 router = APIRouter()
 
@@ -90,8 +95,11 @@ def _touch_last_login(user: dict) -> None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     if parsed and datetime.now(timezone.utc) - parsed < timedelta(minutes=5):
         return
-    db().collection("users").document(user["uid"]).set(
-        {"last_login_at": now_iso(), "updated_at": now_iso()}, merge=True
+    write_doc(
+        "users",
+        user["uid"],
+        {"last_login_at": now_iso(), "updated_at": now_iso()},
+        merge=True,
     )
     user["last_login_at"] = now_iso()
 
@@ -111,7 +119,7 @@ def sync_profile(
     patch = _profile_patch(payload)
     patch["last_login_at"] = now_iso()
     patch["updated_at"] = now_iso()
-    db().collection("users").document(user["uid"]).set(patch, merge=True)
+    write_doc("users", user["uid"], patch, merge=True)
     user.update(patch)
     return {"user": user_out(user), "permissions": permissions_for(user)}
 
@@ -159,7 +167,9 @@ def approve_user(
             f"Unknown role code(s): {', '.join(unknown)}.",
         )
     target = get_doc("users", user_id)
-    db().collection("users").document(user_id).set(
+    write_doc(
+        "users",
+        user_id,
         {
             "account_status": "approved",
             "role_codes": sorted(set(role_codes)),
@@ -193,7 +203,9 @@ def reject_user(
             status.HTTP_400_BAD_REQUEST,
             "Revoke the Super Admin role before rejecting this account.",
         )
-    db().collection("users").document(user_id).set(
+    write_doc(
+        "users",
+        user_id,
         {
             "account_status": "rejected",
             "rejected_by": user["uid"],

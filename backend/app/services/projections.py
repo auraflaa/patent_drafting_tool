@@ -8,10 +8,15 @@ routers stay thin and the UI did not need a contract rewrite.
 from datetime import datetime, timedelta, timezone
 import logging
 
-from app.core.firebase import db
+from app.core.firebase import (
+    FIRESTORE_RETRY,
+    FIRESTORE_TIMEOUT_SECONDS,
+    db,
+    firestore_read,
+)
 from app.core.logging import log_event
 from app.core.security import is_admin
-from app.services.repository import create_doc, list_docs, now_iso
+from app.services.repository import create_doc, get_doc_or_none, list_docs, now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -97,17 +102,30 @@ def member_team_ids(uid: str) -> set[str]:
     """
     ids: set[str] = set()
     try:
-        refs = [
-            db()
-            .collection("teams")
-            .document(team["id"])
-            .collection("members")
-            .document(str(uid))
-            for team in list_docs("teams")
-        ]
-        if not refs:
+        teams = list_docs("teams")
+        if not teams:
             return ids
-        for snap in db().get_all(refs):
+
+        def read() -> list:
+            # Refs are rebuilt from db() on each attempt: a reference belongs to
+            # the client that created it, and a recycled client is a new channel.
+            refs = [
+                db()
+                .collection("teams")
+                .document(team["id"])
+                .collection("members")
+                .document(str(uid))
+                for team in teams
+            ]
+            return list(
+                db().get_all(
+                    refs,
+                    retry=FIRESTORE_RETRY,
+                    timeout=FIRESTORE_TIMEOUT_SECONDS,
+                )
+            )
+
+        for snap in firestore_read(read):
             if not snap.exists:
                 continue
             team_ref = snap.reference.parent.parent
@@ -136,22 +154,37 @@ def user_team_ids(user: dict) -> set[str]:
 def is_team_member(team_id: str | None, uid: str) -> bool:
     if not team_id:
         return False
-    snap = (
-        db()
+    snap = firestore_read(
+        lambda: db()
         .collection("teams")
         .document(str(team_id))
         .collection("members")
         .document(str(uid))
-        .get()
+        .get(
+            retry=FIRESTORE_RETRY,
+            timeout=FIRESTORE_TIMEOUT_SECONDS,
+        )
     )
     return snap.exists
 
 
 def team_members(team_id: str) -> list[dict]:
+    def read() -> list:
+        # Materialised here, not by the caller: stream() is lazy and would run
+        # the network call after the read guard had already returned.
+        return list(
+            db()
+            .collection("teams")
+            .document(str(team_id))
+            .collection("members")
+            .stream(
+                retry=FIRESTORE_RETRY,
+                timeout=FIRESTORE_TIMEOUT_SECONDS,
+            )
+        )
+
     out = []
-    for snap in (
-        db().collection("teams").document(str(team_id)).collection("members").stream()
-    ):
+    for snap in firestore_read(read):
         item = snap.to_dict() or {}
         item["id"] = snap.id
         out.append(item)
@@ -190,8 +223,8 @@ def team_detail_out(team: dict) -> dict:
         uid = member.get("user_id")
         if not uid:
             continue
-        snap = db().collection("users").document(str(uid)).get()
-        members[uid] = team_member_out(member, snap.to_dict() if snap.exists else None)
+        snap = get_doc_or_none("users", str(uid))
+        members[uid] = team_member_out(member, snap)
     base = team_out(team)
     base["members"] = sorted(
         members.values(), key=lambda m: (m.get("full_name") or "").lower()
@@ -238,18 +271,16 @@ def visible_patents(user: dict) -> list[dict]:
 
 
 def require_patent(patent_id: str, user: dict) -> dict:
-    doc = db().collection("patents").document(str(patent_id)).get()
-    if not doc.exists:
+    doc = get_doc_or_none("patents", str(patent_id))
+    if doc is None:
         from fastapi import HTTPException
 
         raise HTTPException(404, "Patent application not found.")
-    item = doc.to_dict() or {}
-    item["id"] = doc.id
-    if not patent_visible(item, user):
+    if not patent_visible(doc, user):
         from fastapi import HTTPException
 
         raise HTTPException(403, "You do not have access to this application.")
-    return item
+    return doc
 
 
 def is_patent_creator(patent: dict, user: dict) -> bool:

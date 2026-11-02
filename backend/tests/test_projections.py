@@ -43,7 +43,7 @@ class _FakeDb:
     def collection(self, _name: str) -> _Teams:
         return self.teams
 
-    def get_all(self, refs):
+    def get_all(self, refs, **_kwargs):
         self.get_all_calls += 1
         return [
             types.SimpleNamespace(

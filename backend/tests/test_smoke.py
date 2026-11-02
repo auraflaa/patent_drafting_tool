@@ -969,18 +969,6 @@ def test_approval_rejection_and_role_changes_are_audited(
     audit: list[tuple] = []
     writes: list[dict] = []
 
-    class FakeDocument:
-        def set(self, data, merge=False):
-            writes.append(data)
-
-    class FakeCollection:
-        def document(self, _id):
-            return FakeDocument()
-
-    class FakeDB:
-        def collection(self, _name):
-            return FakeCollection()
-
     target = {
         "id": "u2",
         "email": "new@example.com",
@@ -992,7 +980,11 @@ def test_approval_rejection_and_role_changes_are_audited(
 
     monkeypatch.setattr(auth, "ensure_permission", lambda *args: None)
     monkeypatch.setattr(auth, "get_doc", lambda *args: dict(target))
-    monkeypatch.setattr(auth, "db", lambda: FakeDB())
+    monkeypatch.setattr(
+        auth,
+        "write_doc",
+        lambda _collection, _id, data, **_kwargs: writes.append(data),
+    )
     monkeypatch.setattr(auth, "log_activity", lambda *args: audit.append(args))
 
     auth.approve_user("u2", {"role_codes": ["INNOVATOR"]}, admin)

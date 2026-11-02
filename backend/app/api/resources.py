@@ -29,7 +29,6 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 
 from app.core.config import settings
-from app.core.firebase import db
 from app.core.limits import upload_limit_detail
 from app.core.logging import log_event
 from app.core.security import (
@@ -95,12 +94,14 @@ from app.services.repository import (
     create_doc,
     delete_doc,
     get_doc,
+    get_doc_or_none,
     list_docs,
     now_iso,
     patch_doc,
     query_docs,
     set_latest_version,
     sort_docs,
+    write_doc,
 )
 
 router = APIRouter()
@@ -312,10 +313,9 @@ def _questionnaire_patch(payload: dict) -> dict:
 
 
 def _agent_or_404(agent_id: str) -> dict:
-    snap = db().collection("users").document(str(agent_id)).get()
-    if not snap.exists:
+    agent = get_doc_or_none("users", str(agent_id))
+    if agent is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Patent Agent not found.")
-    agent = snap.to_dict() or {}
     if (
         PATENT_AGENT not in (agent.get("role_codes") or [])
         or agent.get("account_status") != "approved"
@@ -324,7 +324,7 @@ def _agent_or_404(agent_id: str) -> dict:
             status.HTTP_400_BAD_REQUEST,
             "The selected user is not an approved Patent Agent.",
         )
-    agent["id"] = snap.id
+    agent["id"] = agent.get("id") or str(agent_id)
     return agent
 
 
@@ -350,11 +350,9 @@ def _available_agents() -> list[dict]:
 
 
 def _visible_team(team_id: str, user: dict) -> dict:
-    snap = db().collection("teams").document(str(team_id)).get()
-    if not snap.exists:
+    team = get_doc_or_none("teams", str(team_id))
+    if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Team not found.")
-    team = snap.to_dict() or {}
-    team["id"] = snap.id
     if not (
         is_admin(user)
         or team.get("created_by") == user["uid"]
@@ -452,15 +450,16 @@ def create_team(payload: dict, user: dict = Depends(active_user)):
             "created_by": user["uid"],
         },
     )
-    db().collection("teams").document(team["id"]).collection("members").document(
-        user["uid"]
-    ).set(
+    write_doc(
+        f"teams/{team['id']}/members",
+        user["uid"],
         {
             "user_id": user["uid"],
             "membership_status": "Active",
             "added_by": user["uid"],
             "created_at": _now(),
-        }
+        },
+        merge=False,
     )
     log_activity(user["uid"], "TeamCreated", "Team", team["id"])
     return team_out(team)
@@ -492,9 +491,9 @@ def add_team_member(team_id: str, payload: dict, user: dict = Depends(active_use
             "No account exists for that email yet. Ask them to sign in first.",
         )
     member = matches[0]
-    db().collection("teams").document(team_id).collection("members").document(
-        member["id"]
-    ).set(
+    write_doc(
+        f"teams/{team_id}/members",
+        member["id"],
         {
             "user_id": member["id"],
             "membership_status": "Active",
@@ -520,14 +519,11 @@ def remove_team_member(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "The team owner cannot be removed."
         )
-    ref = (
-        db().collection("teams").document(team_id).collection("members").document(
-            str(member_id)
-        )
+    delete_doc(
+        f"teams/{team_id}/members",
+        str(member_id),
+        not_found="Team member not found.",
     )
-    if not ref.get().exists:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Team member not found.")
-    ref.delete()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
