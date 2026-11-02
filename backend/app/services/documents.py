@@ -70,6 +70,38 @@ class DocumentGenerationError(RuntimeError):
     pass
 
 
+# Bundled layout used until an administrator uploads a template for the
+# document type. It is the Indian Form 1 application form with the generated
+# title and specification placeholders added, so a fresh deployment produces a
+# usable document rather than the bare built-in layout.
+DEFAULT_TEMPLATE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "templates"
+    / "Form_1_Patent_Application.docx"
+)
+_default_template: bytes | None = None
+_default_template_loaded = False
+
+
+def default_template() -> bytes | None:
+    """Return the bundled default template, or None when it is unavailable."""
+    global _default_template, _default_template_loaded
+    if not _default_template_loaded:
+        _default_template_loaded = True
+        try:
+            _default_template = DEFAULT_TEMPLATE_PATH.read_bytes()
+        except OSError as exc:
+            # A missing bundled file must not break generation: render_docx
+            # falls back to the built-in layout.
+            logger.warning(
+                "default_template_missing",
+                extra={"path": str(DEFAULT_TEMPLATE_PATH)},
+                exc_info=exc,
+            )
+            _default_template = None
+    return _default_template
+
+
 def _value(sections: dict, key: str) -> str:
     value = sections.get(key)
     return str(value).strip() if value not in (None, "") else "Not generated."
