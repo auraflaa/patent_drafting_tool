@@ -117,11 +117,11 @@ const GOOGLE_PROVIDER = new GoogleAuthProvider();
 GOOGLE_PROVIDER.setCustomParameters({ prompt: "select_account" });
 
 /**
- * Firebase reports a popup that never delivers its credential as a bare
- * `auth/internal-error` — there is no transport code for "the pop-up could not
- * talk back to this tab". That happens with strict COOP/third-party storage
- * settings, so retry through the full-page redirect, which has no opener
- * requirement.
+ * A pop-up that never hands its credential back arrives as a bare
+ * `auth/internal-error` (there is no transport code for it), which happens
+ * when the opener is severed. A full-page redirect has no opener to lose, so
+ * it is the fallback — not the default, because redirects rely on third-party
+ * storage and are the more fragile path in modern browsers.
  */
 function shouldFallBackToRedirect(error: unknown): boolean {
   const code = (error as { code?: string } | null)?.code;
@@ -228,6 +228,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch {
           // nothing else to do — the local state is cleared below
         }
+        // Firebase completed the sign-in but the API refused its token. Without
+        // this the page silently drops back to /login and looks like "sign-in
+        // did nothing", so say which half failed.
+        setSessionError(
+          "Google sign-in succeeded, but the API rejected the session token (401). " +
+            "The backend log names the verification error.",
+        );
       } else {
         setSessionError(
           "The API could not load your account. Try again shortly.",
