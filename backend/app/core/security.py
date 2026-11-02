@@ -4,12 +4,21 @@ Firebase verifies the ID token; Firestore stores the authorization profile
 (`role_codes` array, `account_status`). Roles are never trusted from the
 client (ADR-002). Legacy SQL users/JWT helpers are gone — see ADR-005.
 """
+import logging
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import settings
-from app.core.firebase import FirebaseNotConfigured, db, verify_id_token
+from app.core.firebase import (
+    FirebaseNotConfigured,
+    TokenUnverifiable,
+    db,
+    verify_id_token,
+)
 from app.services.repository import get_doc_or_none, now_iso
+
+logger = logging.getLogger(__name__)
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -54,6 +63,9 @@ def current_user(
 ) -> dict:
     """Verify the Firebase ID token and return the caller's profile."""
     if not credentials:
+        # Distinguishes "the browser sent no token" from "the token was
+        # rejected" — the two produce the same 401 but very different causes.
+        logger.info("id_token_missing: no Authorization header")
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             "Provide a Firebase ID token as a Bearer token.",
@@ -63,7 +75,21 @@ def current_user(
         claims = verify_id_token(credentials.credentials)
     except FirebaseNotConfigured as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    except TokenUnverifiable as exc:
+        # Not the user's fault and not a reason to sign them out: retry later.
+        logger.warning("id_token_unverifiable: %s", exc)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Could not reach Firebase to verify the session. Try again shortly.",
+        ) from exc
     except Exception as exc:
+        # A bare 401 tells an operator nothing about which claim or key failed,
+        # and the browser only sees "session expired" — so name the reason here.
+        logger.warning(
+            "id_token_rejected: %s: %s",
+            type(exc).__name__,
+            str(exc)[:300],
+        )
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             "Firebase ID token is invalid or expired.",

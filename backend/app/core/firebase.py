@@ -10,8 +10,23 @@ from app.core.config import settings
 _app = None
 _db = None
 
+# Google stamps `iat`/`auth_time` with its own clock, so a workstation running
+# even a second behind rejects a token minted a moment ago as "used too early".
+# That reads as a dead session in the browser. Allow ordinary NTP-scale drift.
+CLOCK_SKEW_SECONDS = 60
+
+
 class FirebaseNotConfigured(RuntimeError):
     pass
+
+
+class TokenUnverifiable(RuntimeError):
+    """Firebase could not be reached, so a token's validity is unknown.
+
+    Distinct from a rejected token: the caller answers 503 (retry later)
+    instead of 401 (session is dead), so a network blip does not sign the
+    user out of a perfectly good session.
+    """
 
 
 def _credentials_from_json(raw: str):
@@ -74,4 +89,16 @@ def db():
 
 def verify_id_token(token: str) -> dict:
     initialize_firebase()
-    return auth.verify_id_token(token, app=_app, check_revoked=True)
+    try:
+        return auth.verify_id_token(
+            token,
+            app=_app,
+            check_revoked=True,
+            clock_skew_seconds=CLOCK_SKEW_SECONDS,
+        )
+    except (auth.CertificateFetchError, OSError) as exc:
+        # The public keys (or the revocation lookup) could not be fetched. The
+        # token may well be valid; say so instead of returning 401.
+        raise TokenUnverifiable(
+            "Firebase could not be reached to verify the ID token."
+        ) from exc
