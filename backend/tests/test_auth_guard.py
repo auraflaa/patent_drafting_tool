@@ -42,6 +42,34 @@ def test_verify_id_token_separates_network_failure(monkeypatch):
         fb.verify_id_token("token")
 
 
+def test_verify_id_token_treats_unknown_errors_as_unverifiable(monkeypatch):
+    """The revocation lookup raises UnavailableError on a network drop."""
+
+    class UnavailableError(Exception):
+        pass
+
+    def outage(*args, **kwargs):
+        raise UnavailableError("failed to establish a connection")
+
+    monkeypatch.setattr(fb, "initialize_firebase", lambda: None)
+    monkeypatch.setattr(fb.auth, "verify_id_token", outage)
+
+    with pytest.raises(fb.TokenUnverifiable):
+        fb.verify_id_token("token")
+
+
+def test_verify_id_token_still_rejects_bad_tokens(monkeypatch):
+    def reject(*args, **kwargs):
+        raise fb.auth.InvalidIdTokenError("bad signature")
+
+    monkeypatch.setattr(fb, "initialize_firebase", lambda: None)
+    monkeypatch.setattr(fb.auth, "verify_id_token", reject)
+
+    # A bad token must stay a 401, not become a retryable outage.
+    with pytest.raises(fb.auth.InvalidIdTokenError):
+        fb.verify_id_token("token")
+
+
 def test_current_user_returns_401_for_a_bad_token(monkeypatch):
     def reject(token):
         raise fb.auth.InvalidIdTokenError("bad token")

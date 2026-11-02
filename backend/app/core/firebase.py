@@ -96,9 +96,14 @@ def verify_id_token(token: str) -> dict:
             check_revoked=True,
             clock_skew_seconds=CLOCK_SKEW_SECONDS,
         )
-    except (auth.CertificateFetchError, OSError) as exc:
-        # The public keys (or the revocation lookup) could not be fetched. The
-        # token may well be valid; say so instead of returning 401.
+    except (auth.InvalidIdTokenError, auth.UserNotFoundError):
+        # A real token problem: bad signature, expired, revoked, or the account
+        # was deleted. The caller answers 401 and the browser signs out.
+        raise
+    except Exception as exc:
+        # Everything else — DNS, TLS, Google returning 503, an unknown claim —
+        # leaves the token's validity unknown. Reported as 503 (retry), never
+        # as 401, so an outage cannot destroy a valid session.
         raise TokenUnverifiable(
             "Firebase could not be reached to verify the ID token."
         ) from exc
