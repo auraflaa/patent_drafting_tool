@@ -51,6 +51,29 @@ class Settings(BaseSettings):
     ai_api_key: str = Field(default='', repr=False)
     ai_model: str = ''
 
+    # --- Document ingestion -------------------------------------------------
+    # Extraction turns an upload into txt/markdown plus figure bounding boxes
+    # that the drafting model can read. It never fails an upload: the file is
+    # stored first and a failed extraction is recorded on its row.
+    ingestion_enabled: bool = True
+    # OpenDataLoader is a JVM tool. `python -m opendataloader_pdf` needs a
+    # `java` on PATH; leave empty to use the one the interpreter finds.
+    java_binary: str = ''
+    # Optional YOLOX-tiny ONNX classifier for figure types. Weight files are
+    # never committed (AGENTS.md): unset means classification stays off and
+    # OpenDataLoader's own bounding boxes are used unchanged.
+    yolox_model_path: str = ''
+    # Comma-separated class names in model order. Empty means the model's
+    # labels are not trusted (a stock COCO model cannot name patent drawings),
+    # so detections only raise the figure's confidence, never rename it.
+    yolox_classes: str = ''
+    yolox_input_size: int = Field(default=416, ge=64, le=1280)
+    yolox_confidence: float = Field(default=0.35, ge=0.0, le=1.0)
+    max_figures_per_file: int = Field(default=60, ge=1, le=500)
+    # Drafting context budget: extracted text is truncated to this many
+    # characters so a 200-page filing cannot crowd out the questionnaire.
+    max_context_characters: int = Field(default=20_000, ge=1_000)
+
     @property
     def allowed_extensions(self) -> tuple[str, ...]:
         return tuple(

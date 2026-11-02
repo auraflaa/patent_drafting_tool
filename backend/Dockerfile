@@ -15,8 +15,13 @@ FROM python:3.13-slim
 # No LibreOffice: documents are Word-only (ADR-006) and PDF uploads are
 # converted with the pure-Python `pdf2docx` dependency, so the runtime needs
 # no office suite or headless renderer.
+#
+# A headless JRE is required: PDF text/figure extraction (opendataloader-pdf)
+# runs a bundled JVM tool, which needs Java 11 or newer on PATH.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --uid 1000 appuser
@@ -47,10 +52,12 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 # it modest because a PDF conversion runs in-process and holds one worker for
 # the length of the conversion. Override with `docker run ... <command>` if
 # needed.
+# 120s covered a PDF conversion but not a conversion plus extraction on a long
+# filing; the client waits up to 180s for an upload, so allow more.
 CMD ["gunicorn", "app.main:app", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--workers", "2", \
      "--bind", "0.0.0.0:8000", \
      "--access-logfile", "-", \
      "--error-logfile", "-", \
-     "--timeout", "120"]
+     "--timeout", "240"]
