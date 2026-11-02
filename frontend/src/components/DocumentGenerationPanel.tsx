@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiDownload, apiFetch, ApiError } from "../lib/api";
+import { apiDownload, apiFetch, ApiError, LONG_REQUEST_TIMEOUT_MS } from "../lib/api";
 import type {
   DocumentGenerationJobOut,
   DocumentOut,
@@ -65,7 +65,11 @@ export function DocumentGenerationPanel({
     try {
       const job = await apiFetch<DocumentGenerationJobOut>(
         `/api/patents/${patentId}/documents/generate`,
-        { method: "POST", body: JSON.stringify({ output_format: "DOCX" }) }
+        {
+          method: "POST",
+          body: JSON.stringify({ output_format: "DOCX" }),
+          timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+        }
       );
       if (job.status === "Failed") {
         setError(`Generation failed: ${job.error_message ?? "unknown error"}`);

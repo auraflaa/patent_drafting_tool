@@ -7,7 +7,7 @@ import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { StatusBadge } from "../components/StatusBadge";
 import { BasicInfoTab, QuestionnaireTab } from "../components/PatentDetailTabs";
-import { apiFetch } from "../lib/api";
+import { apiFetch, LONG_REQUEST_TIMEOUT_MS } from "../lib/api";
 import { homePathFor } from "../lib/roles";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -69,6 +69,7 @@ export default function DraftWorkspacePage() {
       await apiFetch(`/api/patents/${patentId}/draft/generate`, {
         method: "POST",
         body: JSON.stringify({}),
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
       });
       // New versions invalidate the cached history, and the batch updates
       // ai_status on the patent.
@@ -88,6 +89,7 @@ export default function DraftWorkspacePage() {
       await apiFetch(`/api/patents/${patentId}/draft/generate`, {
         method: "POST",
         body: JSON.stringify({ section_types: [section] }),
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
       });
       setVersions({});
       await Promise.all([loadDraft(), loadPatent()]);
