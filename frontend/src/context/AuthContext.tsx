@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import {
+  getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
   signInWithPopup,
@@ -115,15 +116,36 @@ function writeCachedProfile(user: UserOut | null, permissions: string[], status:
 const GOOGLE_PROVIDER = new GoogleAuthProvider();
 GOOGLE_PROVIDER.setCustomParameters({ prompt: "select_account" });
 
-/** Pop-ups are blocked or unsupported in a few environments; fall back to a full redirect. */
+/**
+ * Firebase reports a popup that never delivers its credential as a bare
+ * `auth/internal-error` — there is no transport code for "the pop-up could not
+ * talk back to this tab". That happens with strict COOP/third-party storage
+ * settings, so retry through the full-page redirect, which has no opener
+ * requirement.
+ */
 function shouldFallBackToRedirect(error: unknown): boolean {
   const code = (error as { code?: string } | null)?.code;
   return (
     code === "auth/popup-blocked" ||
     code === "auth/popup-closed-by-user" ||
     code === "auth/cancelled-popup-request" ||
-    code === "auth/operation-not-supported-in-this-environment"
+    code === "auth/operation-not-supported-in-this-environment" ||
+    code === "auth/internal-error"
   );
+}
+
+/**
+ * Firebase puts the actionable part of a failure in `customData.serverResponse`
+ * (or `customData.message`) while `error.message` stays generic. Without this
+ * every popup failure reads "Error (auth/internal-error)".
+ */
+function signInErrorDetail(error: unknown): string {
+  const candidate = error as
+    | { message?: string; customData?: { serverResponse?: unknown } }
+    | null;
+  const server = candidate?.customData?.serverResponse;
+  if (typeof server === "string" && server.trim()) return server.trim();
+  return candidate?.message ?? "unknown error";
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -252,13 +274,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe?.();
   }, [handleSignedIn]);
 
+  // The redirect fallback finishes on the next page load, and a failure there
+  // is otherwise silent: the browser lands back on /login with no user and no
+  // message. Read the result once so those errors reach the login screen.
+  useEffect(() => {
+    if (!isFirebaseConfigured()) return;
+    let cancelled = false;
+    void getRedirectResult(firebaseAuth())
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const code = (error as { code?: string } | null)?.code ?? "";
+        // A load with no pending redirect is not a failure.
+        if (code === "auth/no-auth-event" || code === "auth/null-user") return;
+        logError("AuthContext.getRedirectResult", error);
+        setSessionError(
+          `Sign-in did not complete: ${signInErrorDetail(error)}${code ? ` (${code})` : ""}`,
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const signInWithGoogle = useCallback(async () => {
     const auth = firebaseAuth();
     setSessionError(null);
     try {
       await signInWithPopup(auth, GOOGLE_PROVIDER);
     } catch (error) {
+      const code = (error as { code?: string } | null)?.code ?? "";
+      const detail = signInErrorDetail(error);
+      logError("AuthContext.signInWithGoogle", { code, detail, error });
       if (shouldFallBackToRedirect(error)) {
+        // A pop-up that cannot hand its credential back is retried as a full
+        // redirect. Keep the reason on screen if that also fails.
+        setSessionError(`Pop-up sign-in failed (${detail}). Redirecting…`);
         await signInWithRedirect(auth, GOOGLE_PROVIDER);
         return;
       }
