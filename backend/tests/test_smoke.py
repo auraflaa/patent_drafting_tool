@@ -231,6 +231,35 @@ def test_document_context_carries_the_watermark_and_title() -> None:
     assert context["CLAIMS"] == "Not generated."
 
 
+def test_bundled_form1_template_renders_the_generated_sections() -> None:
+    """A fresh deployment must produce a real application, not a blank form."""
+    template = documents.default_template()
+    assert template, "the bundled Form 1 template must ship with the app"
+    unknown, unused, parse_error = documents.inspect_template(template)
+    assert parse_error is None
+    assert unknown == []
+    assert unused == []
+
+    patent = {"invention_title": "Self-sealing widget"}
+    sections = {section: f"{section} body" for section in drafting.SECTION_TYPES}
+    content = documents.render_docx(patent, sections, template)
+
+    from docx import Document
+
+    rendered = Document(BytesIO(content))
+    body = "\n".join(paragraph.text for paragraph in rendered.paragraphs)
+    cells = "\n".join(
+        cell.text
+        for table in rendered.tables
+        for row in table.rows
+        for cell in row.cells
+    )
+    assert "Self-sealing widget" in cells
+    assert "ABSTRACT body" in body
+    assert "CLAIMS body" in body
+    assert documents.WATERMARK_TEXT in body
+
+
 # ---------------------------------------------------------------------------
 # Deployment limits
 # ---------------------------------------------------------------------------
@@ -1337,6 +1366,11 @@ def test_delete_file_removes_the_record_before_the_blob(
         resources.blobs, "delete_blob", lambda blob_id: order.append(("blob", blob_id))
     )
     monkeypatch.setattr(
+        resources.extraction_store,
+        "delete_for_file",
+        lambda file_id: order.append(("extraction", file_id)),
+    )
+    monkeypatch.setattr(
         resources,
         "log_activity",
         lambda *args: order.append(("audit", args[1])),
@@ -1344,7 +1378,12 @@ def test_delete_file_removes_the_record_before_the_blob(
 
     resources.delete_file("p1", "f1", {"uid": "u1"})
 
-    assert order == [("doc", "f1"), ("blob", "b1"), ("audit", "FileDeleted")]
+    assert order == [
+        ("doc", "f1"),
+        ("blob", "b1"),
+        ("extraction", "f1"),
+        ("audit", "FileDeleted"),
+    ]
 
 
 def test_patent_calendar_requires_the_view_permission(

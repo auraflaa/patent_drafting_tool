@@ -479,7 +479,28 @@ def file_out(doc: dict, user: dict | None) -> dict:
         "converted_from_pdf": bool(doc.get("converted_from_pdf")),
         "mime_type": doc.get("mime_type"),
         "file_size_bytes": doc.get("file_size_bytes"),
+        # Extraction is best effort: "unsupported" and "failed" are normal
+        # values for a file the drafting model cannot read.
+        "extraction_status": doc.get("extraction_status") or "pending",
+        "extraction_figure_count": int(doc.get("extraction_figure_count") or 0),
+        "extraction_page_count": int(doc.get("extraction_page_count") or 0),
+        "extraction_text_available": bool(doc.get("extraction_text_available")),
+        "extraction_error": doc.get("extraction_error") or None,
         "created_at": _iso(doc.get("created_at")),
+    }
+
+
+def figure_out(doc: dict) -> dict:
+    return {
+        "id": doc["id"],
+        "file_id": doc.get("file_id"),
+        "page": int(doc.get("page") or 0),
+        "bbox": doc.get("bbox") or [],
+        "kind": doc.get("kind") or "image",
+        "caption": doc.get("caption") or "",
+        "label": doc.get("label") or "",
+        "confidence": doc.get("confidence"),
+        "has_image": bool(doc.get("has_image")),
     }
 
 

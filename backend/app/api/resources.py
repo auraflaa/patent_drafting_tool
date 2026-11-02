@@ -40,6 +40,7 @@ from app.core.security import (
 from app.services import blobs
 from app.services import documents as docgen
 from app.services import drafting
+from app.services import extraction_store
 from app.services import uploads
 from app.services.projections import (
     CALENDAR_EVENT_TYPES,
@@ -57,6 +58,7 @@ from app.services.projections import (
     document_job_out,
     document_out,
     document_version_out,
+    figure_out,
     file_out,
     inventor_out,
     is_patent_creator,
@@ -1220,6 +1222,20 @@ def generate_draft(
     )
 
     existing = _draft_outputs(patent_id)
+    # Uploaded documents are optional evidence. A read failure must degrade to
+    # a draft without them, not block the whole batch.
+    try:
+        context = extraction_store.load_context(
+            patent_id, settings.max_context_characters
+        )
+    except Exception as exc:  # noqa: BLE001 - extraction is supplementary
+        log_event(
+            logger,
+            logging.WARNING,
+            "draft_context_unavailable",
+            error_type=type(exc).__name__,
+        )
+        context = ""
     created = []
     started = time.monotonic()
     for section in requested:
@@ -1231,7 +1247,7 @@ def generate_draft(
             break
         try:
             text, provider, model = drafting.generate_section(
-                patent, questionnaire, section
+                patent, questionnaire, section, context=context
             )
         except drafting.AIGenerationError as exc:
             _set_patent(patent_id, {"ai_status": "Failed"})
@@ -1390,6 +1406,10 @@ class _PreparedUpload:
     content: bytes
     converted_from_pdf: bool
     source_filename: str | None
+    # The original bytes when the stored file is a conversion of them. The PDF
+    # is never stored, but it is still the best input for text and figure
+    # extraction, so the request keeps it alive until ingestion has run.
+    source_content: bytes | None = None
 
 
 def _prepare_upload(upload: UploadFile, content: bytes) -> _PreparedUpload:
@@ -1420,6 +1440,7 @@ def _prepare_upload(upload: UploadFile, content: bytes) -> _PreparedUpload:
         content=converted,
         converted_from_pdf=True,
         source_filename=validated.filename,
+        source_content=content,
     )
 
 
@@ -1459,9 +1480,14 @@ def _chunks(stream, chunk_size: int = CHUNK_SIZE):
 
 
 def _download_response(
-    blob_id: str | None, media_type: str, headers: dict
+    blob_id: str | None,
+    media_type: str,
+    headers: dict,
+    *,
+    content: bytes | None = None,
 ) -> StreamingResponse:
-    content = _blob_guard(lambda: blobs.read_blob(blob_id))
+    if content is None:
+        content = _blob_guard(lambda: blobs.read_blob(blob_id))
     response_headers = dict(headers)
     response_headers.setdefault("Content-Length", str(len(content)))
     return StreamingResponse(
@@ -1506,12 +1532,32 @@ def upload_file(
                 "mime_type": prepared.mime_type,
                 "file_size_bytes": stored["size_bytes"],
                 "stored_size_bytes": stored["stored_bytes"],
+                "extraction_status": "pending",
             },
         )
     except Exception:
         # Do not leave an orphaned blob if the metadata row cannot be written.
         blobs.delete_blob(stored["id"])
         raise
+    # The file is safely stored. Extraction runs now, in-process, so the user
+    # gets text and figures back from the same upload (ADR-003: one instance,
+    # no job queue). It never raises; a failure is recorded on the file row.
+    extraction_fields = extraction_store.ingest_upload(
+        file_id=record["id"],
+        patent_id=patent_id,
+        filename=prepared.source_filename or prepared.filename,
+        content=prepared.source_content or prepared.content,
+    )
+    record.update(extraction_fields)
+    try:
+        write_doc("files", record["id"], extraction_fields)
+    except Exception as exc:  # noqa: BLE001 - the upload itself succeeded
+        log_event(
+            logger,
+            logging.WARNING,
+            "file_extraction_fields_failed",
+            error_type=type(exc).__name__,
+        )
     notify_many(
         patent_participants(patent), patent_id, "FileUploaded", exclude=user["uid"]
     )
@@ -1519,12 +1565,88 @@ def upload_file(
     return file_out(record, user)
 
 
-@router.get("/patents/{patent_id}/files/{file_id}/download")
-def download_file(patent_id: str, file_id: str, user: dict = Depends(active_user)):
+@router.get("/patents/{patent_id}/files/{file_id}/text")
+def download_file_text(
+    patent_id: str, file_id: str, user: dict = Depends(active_user)
+):
+    """Download the text the drafting model reads for this upload."""
     require_patent(patent_id, user)
+    record = _file_for_patent(patent_id, file_id)
+    try:
+        content = extraction_store.read_text(file_id)
+    except blobs.BlobTooLarge as exc:  # pragma: no cover - defensive
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "No extracted text is available."
+        ) from exc
+    except blobs.BlobNotFound as exc:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "No extracted text is available for this file.",
+        ) from exc
+    except blobs.BlobError as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "extraction_read_failed",
+            error_type=type(exc).__name__,
+        )
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "File storage is temporarily unavailable. Try again later.",
+        ) from exc
+    stem = PurePath(record.get("original_file_name") or "file").stem
+    return _download_response(
+        None,
+        "text/markdown; charset=utf-8",
+        _content_disposition(f"{stem}-extracted.md"),
+        content=content,
+    )
+
+
+@router.get("/patents/{patent_id}/files/{file_id}/figures")
+def list_file_figures(
+    patent_id: str, file_id: str, user: dict = Depends(active_user)
+):
+    require_patent(patent_id, user)
+    _file_for_patent(patent_id, file_id)
+    return [
+        figure_out(figure)
+        for figure in extraction_store.figures_for_file(file_id)
+    ]
+
+
+@router.get("/patents/{patent_id}/files/{file_id}/figures/{figure_id}/image")
+def download_figure_image(
+    patent_id: str,
+    file_id: str,
+    figure_id: str,
+    user: dict = Depends(active_user),
+):
+    require_patent(patent_id, user)
+    _file_for_patent(patent_id, file_id)
+    figure = extraction_store.get_figure(figure_id)
+    if figure is None or figure.get("file_id") != file_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Figure not found.")
+    content = _blob_guard(lambda: extraction_store.read_figure_image(figure))
+    return _download_response(
+        None,
+        figure.get("content_type") or "image/jpeg",
+        _content_disposition(figure.get("label") or "figure"),
+        content=content,
+    )
+
+
+def _file_for_patent(patent_id: str, file_id: str) -> dict:
     record = get_doc("files", file_id)
     if record.get("patent_application_id") != patent_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found.")
+    return record
+
+
+@router.get("/patents/{patent_id}/files/{file_id}/download")
+def download_file(patent_id: str, file_id: str, user: dict = Depends(active_user)):
+    require_patent(patent_id, user)
+    record = _file_for_patent(patent_id, file_id)
     return _download_response(
         record.get("blob_id"),
         record.get("mime_type") or "application/octet-stream",
@@ -1535,9 +1657,7 @@ def download_file(patent_id: str, file_id: str, user: dict = Depends(active_user
 @router.delete("/patents/{patent_id}/files/{file_id}")
 def delete_file(patent_id: str, file_id: str, user: dict = Depends(active_user)):
     require_patent(patent_id, user)
-    record = get_doc("files", file_id)
-    if record.get("patent_application_id") != patent_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found.")
+    record = _file_for_patent(patent_id, file_id)
     # Uploaders can always remove their own file; the catalogued FILES_DELETE
     # grant (Patent Agent) is what allows deleting someone else's upload.
     if not (
@@ -1552,6 +1672,9 @@ def delete_file(patent_id: str, file_id: str, user: dict = Depends(active_user))
     # while deleting the blob first would leave a row pointing at missing bytes.
     delete_doc("files", file_id)
     blobs.delete_blob(record.get("blob_id"))
+    # Text, layout and figure crops are separate documents; leaving them behind
+    # would keep the deleted document's content readable for ever.
+    extraction_store.delete_for_file(file_id)
     log_activity(user["uid"], "FileDeleted", "PatentFile", file_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -1813,6 +1936,10 @@ def _run_generation(
                     "The active DOCX template is missing. Ask an administrator "
                     "to re-upload it."
                 ) from exc
+        if template_bytes is None:
+            # No uploaded template yet: use the bundled Form 1 so every patent
+            # still gets a real application layout.
+            template_bytes = docgen.default_template()
         docx = docgen.render_docx(patent, sections, template_bytes)
         try:
             stored = blobs.put_blob(docx, docgen.DOCX_MIME)
@@ -2100,7 +2227,26 @@ def upload_template(
     if document_type not in docgen.DOCUMENT_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown document_type.")
     content = _read_upload(upload)
-    validated = _validate_upload(upload, content, allowed=(".docx",))
+    validated = _validate_upload(
+        upload, content, allowed=(".docx", ".pdf", ".doc")
+    )
+    if validated.extension == ".doc":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Legacy .doc templates cannot be read. Save the file as .docx or "
+            "PDF and upload it again.",
+        )
+    template_name = validated.filename
+    if validated.extension == ".pdf":
+        # Templates are rendered by python-docx, so a PDF is converted to Word
+        # once at upload time; the original PDF is not kept.
+        try:
+            content = docgen.pdf_to_docx(content)
+        except docgen.DocumentGenerationError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        template_name = uploads.sanitize_filename(
+            f"{PurePath(validated.filename).stem}.docx"
+        )
     unknown, unused, parse_error = docgen.inspect_template(content)
     existing = [
         doc
@@ -2126,7 +2272,7 @@ def upload_template(
                 "document_type": document_type,
                 "version_number": version_number,
                 "file_path": stored["id"],
-                "original_file_name": validated.filename,
+                "original_file_name": template_name,
                 "file_size_bytes": stored["size_bytes"],
                 "stored_size_bytes": stored["stored_bytes"],
                 "is_active": activate,
