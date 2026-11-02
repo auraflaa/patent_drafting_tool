@@ -124,7 +124,7 @@ def test_query_docs_uses_keyword_field_filters(monkeypatch):
         def limit(self, _count):
             return self
 
-        def stream(self):
+        def stream(self, **_kwargs):
             return []
 
     class FakeDb:

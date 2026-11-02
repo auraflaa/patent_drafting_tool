@@ -13,9 +13,24 @@ from typing import Any
 from fastapi import HTTPException
 from google.cloud import firestore
 
-from app.core.firebase import db
+from app.core.firebase import (
+    FIRESTORE_RETRY,
+    FIRESTORE_TIMEOUT_SECONDS,
+    db,
+    firestore_read,
+    firestore_write,
+)
 
 MAX_QUERY_LIMIT = 1000
+
+# Every helper below passes these explicitly: the SDK defaults to a five-minute
+# retry budget, which lets one dead gRPC channel freeze a request for the whole
+# window. See FIRESTORE_TIMEOUT_SECONDS in app.core.firebase.
+READ_KWARGS = {"retry": FIRESTORE_RETRY, "timeout": FIRESTORE_TIMEOUT_SECONDS}
+
+
+def _ref(collection: str, doc_id: str):
+    return db().collection(collection).document(str(doc_id))
 
 
 def now_iso() -> str:
@@ -28,7 +43,7 @@ def clean(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_doc_or_none(collection: str, doc_id: str) -> dict | None:
-    snap = db().collection(collection).document(str(doc_id)).get()
+    snap = firestore_read(lambda: _ref(collection, doc_id).get(**READ_KWARGS))
     if not snap.exists:
         return None
     data = snap.to_dict() or {}
@@ -50,13 +65,19 @@ def query_docs(
     limit: int = MAX_QUERY_LIMIT,
 ) -> list[dict]:
     """Run equality/array-contains filters and return plain dicts with IDs."""
-    query = db().collection(collection)
-    for field, op, value in filters or ():
-        # Keyword form: the positional overload of where() is deprecated and
-        # emits a UserWarning on every query with newer SDKs.
-        query = query.where(filter=firestore.FieldFilter(field, op, value))
+
+    def read() -> list:
+        query = db().collection(collection)
+        for field, op, value in filters or ():
+            # Keyword form: the positional overload of where() is deprecated and
+            # emits a UserWarning on every query with newer SDKs.
+            query = query.where(filter=firestore.FieldFilter(field, op, value))
+        # Materialise inside the operation: stream() is lazy, so returning the
+        # generator would move the network call outside the read guard.
+        return list(query.limit(max(1, min(limit, MAX_QUERY_LIMIT))).stream(**READ_KWARGS))
+
     out: list[dict] = []
-    for snap in query.limit(max(1, min(limit, MAX_QUERY_LIMIT))).stream():
+    for snap in firestore_read(read):
         item = snap.to_dict() or {}
         item["id"] = snap.id
         out.append(item)
@@ -85,7 +106,7 @@ def allocate_counter(
     @firestore.transactional
     def _claim(transaction) -> int:
         ref = db().collection(collection).document(str(doc_id))
-        snapshot = ref.get(transaction=transaction)
+        snapshot = ref.get(transaction=transaction, **READ_KWARGS)
         stored = 0
         if snapshot.exists:
             stored = int((snapshot.to_dict() or {}).get(field) or 0)
@@ -97,7 +118,7 @@ def allocate_counter(
         )
         return value
 
-    return _claim(db().transaction())
+    return firestore_write(lambda: _claim(db().transaction()))
 
 
 def set_latest_version(
@@ -116,7 +137,7 @@ def set_latest_version(
     @firestore.transactional
     def _apply(transaction) -> None:
         ref = db().collection(collection).document(str(doc_id))
-        snapshot = ref.get(transaction=transaction)
+        snapshot = ref.get(transaction=transaction, **READ_KWARGS)
         if not snapshot.exists:
             raise HTTPException(404, "Document not found.")
         current = int((snapshot.to_dict() or {}).get("latest_version") or 0)
@@ -126,8 +147,32 @@ def set_latest_version(
         payload["updated_at"] = now_iso()
         transaction.set(ref, payload, merge=True)
 
-    _apply(db().transaction())
+    firestore_write(lambda: _apply(db().transaction()))
     return get_doc(collection, doc_id)
+
+
+def write_doc(
+    collection: str,
+    doc_id: str,
+    data: dict,
+    *,
+    merge: bool = True,
+) -> None:
+    """Set a document without reading it back.
+
+    `firestore_write` never replays a failed write, so callers that need
+    read-after-write use `create_doc`/`patch_doc` instead.
+    """
+    payload = clean(data)
+    payload.setdefault("updated_at", now_iso())
+    firestore_write(
+        lambda: _ref(collection, doc_id).set(
+            payload,
+            merge=merge,
+            retry=FIRESTORE_RETRY,
+            timeout=FIRESTORE_TIMEOUT_SECONDS,
+        )
+    )
 
 
 def create_doc(collection: str, data: dict, doc_id: str | None = None) -> dict:
@@ -139,26 +184,51 @@ def create_doc(collection: str, data: dict, doc_id: str | None = None) -> dict:
     payload = clean(data)
     payload.setdefault("created_at", now_iso())
     payload["updated_at"] = now_iso()
-    ref.set(payload)
+    firestore_write(
+        lambda: ref.set(
+            payload,
+            retry=FIRESTORE_RETRY,
+            timeout=FIRESTORE_TIMEOUT_SECONDS,
+        )
+    )
     payload["id"] = ref.id
     return payload
 
 
 def patch_doc(collection: str, doc_id: str, data: dict) -> dict:
     ref = db().collection(collection).document(str(doc_id))
-    if not ref.get().exists:
+    if not ref.get(**READ_KWARGS).exists:
         raise HTTPException(404, f'{collection.rstrip("s").capitalize()} not found.')
     payload = clean(data)
     payload["updated_at"] = now_iso()
-    ref.set(payload, merge=True)
+    firestore_write(
+        lambda: ref.set(
+            payload,
+            merge=True,
+            retry=FIRESTORE_RETRY,
+            timeout=FIRESTORE_TIMEOUT_SECONDS,
+        )
+    )
     return get_doc(collection, doc_id)
 
 
-def delete_doc(collection: str, doc_id: str) -> None:
+def delete_doc(
+    collection: str,
+    doc_id: str,
+    *,
+    not_found: str | None = None,
+) -> None:
     ref = db().collection(collection).document(str(doc_id))
-    if not ref.get().exists:
-        raise HTTPException(404, f'{collection.rstrip("s").capitalize()} not found.')
-    ref.delete()
+    if not ref.get(**READ_KWARGS).exists:
+        raise HTTPException(
+            404, not_found or f'{collection.rstrip("s").capitalize()} not found.'
+        )
+    firestore_write(
+        lambda: ref.delete(
+            retry=FIRESTORE_RETRY,
+            timeout=FIRESTORE_TIMEOUT_SECONDS,
+        )
+    )
 
 
 def _sort_key(value: Any) -> tuple[int, float, str]:
