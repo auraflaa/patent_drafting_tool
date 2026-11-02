@@ -71,6 +71,7 @@ export function DocumentGenerationPanel({
         setError(`Generation failed: ${job.error_message ?? "unknown error"}`);
       } else {
         onChanged?.();
+        await refreshVersionHistory();
       }
       await Promise.all([loadDocuments(), loadJobs()]);
     } catch (err) {
@@ -92,6 +93,7 @@ export function DocumentGenerationPanel({
         setError(`Retry failed again: ${job.error_message ?? "unknown error"}`);
       } else {
         onChanged?.();
+        await refreshVersionHistory();
       }
       await Promise.all([loadDocuments(), loadJobs()]);
     } catch (err) {
@@ -101,6 +103,23 @@ export function DocumentGenerationPanel({
     }
   }
 
+  async function loadVersions(documentId: string) {
+    try {
+      const data = await apiFetch<DocumentVersionOut[]>(
+        `/api/patents/${patentId}/documents/${documentId}/versions`
+      );
+      setVersions((v) => ({ ...v, [documentId]: data }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load document version history");
+    }
+  }
+
+  /** Generation writes a new version, so any cached history is stale. */
+  async function refreshVersionHistory() {
+    setVersions({});
+    if (expandedDocId) await loadVersions(expandedDocId);
+  }
+
   async function toggleVersions(documentId: string) {
     if (expandedDocId === documentId) {
       setExpandedDocId(null);
@@ -108,14 +127,7 @@ export function DocumentGenerationPanel({
     }
     setExpandedDocId(documentId);
     if (!versions[documentId]) {
-      try {
-        const data = await apiFetch<DocumentVersionOut[]>(
-          `/api/patents/${patentId}/documents/${documentId}/versions`
-        );
-        setVersions((v) => ({ ...v, [documentId]: data }));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load document version history");
-      }
+      await loadVersions(documentId);
     }
   }
 
