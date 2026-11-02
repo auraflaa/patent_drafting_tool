@@ -125,10 +125,11 @@ GOOGLE_PROVIDER.setCustomParameters({ prompt: "select_account" });
  */
 function shouldFallBackToRedirect(error: unknown): boolean {
   const code = (error as { code?: string } | null)?.code;
+  // Closing the pop-up, or a second request cancelling the first, is a
+  // deliberate cancel — sending the user to Google anyway would ignore their
+  // intent. Only retry when this browser could not run a pop-up at all.
   return (
     code === "auth/popup-blocked" ||
-    code === "auth/popup-closed-by-user" ||
-    code === "auth/cancelled-popup-request" ||
     code === "auth/operation-not-supported-in-this-environment" ||
     code === "auth/internal-error"
   );
