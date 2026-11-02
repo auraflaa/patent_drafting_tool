@@ -160,6 +160,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
   const [sessionError, setSessionError] = useState<string | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
+  // Read by loadMe to decide whether a transient API failure should keep the
+  // user on screen. A ref (not a dependency) keeps loadMe stable.
+  const userRef = useRef<UserOut | null>(cached?.user ?? null);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const clearSession = useCallback(() => {
     setUser(null);
@@ -176,18 +183,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     setTokenProvider(async () => {
-      try {
-        const auth = firebaseAuth();
-        // On a reload the cached profile renders the app before Firebase has
-        // restored its persisted session. Wait for that restore, otherwise the
-        // first requests go out without a token, get a 401, and the 401 handler
-        // signs the user out.
-        await auth.authStateReady();
-        const current = auth.currentUser;
-        return current ? await current.getIdToken() : null;
-      } catch {
-        return null;
-      }
+      const auth = firebaseAuth();
+      // On a reload the cached profile renders the app before Firebase has
+      // restored its persisted session. Wait for that restore, otherwise the
+      // first requests go out without a token, get a 401, and the 401 handler
+      // signs the user out.
+      await auth.authStateReady();
+      const current = auth.currentUser;
+      // Deliberately not caught: a refresh that fails is an outage, and
+      // lib/api.ts turns it into a retryable error. Returning null here would
+      // send the request unauthenticated and the resulting 401 would delete a
+      // perfectly valid session.
+      return current ? await current.getIdToken() : null;
     });
     return () => setTokenProvider(async () => null);
   }, []);
@@ -222,7 +229,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       logError("loadMe", error);
       // A 401 means Firebase no longer accepts the session; anything else
-      // (network, 5xx) also leaves us unable to describe the user.
+      // (network, 5xx, timeout) only means we could not describe the user.
       if (error instanceof ApiError && error.status === 401) {
         try {
           await signOut(firebaseAuth());
@@ -236,12 +243,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           "Google sign-in succeeded, but the API rejected the session token (401). " +
             "The backend log names the verification error.",
         );
-      } else {
-        setSessionError(
-          "The API could not load your account. Try again shortly.",
-        );
+        clearSession();
+        return;
       }
-      clearSession();
+      // An outage must not look like a sign-out: a wedged backend used to clear
+      // the session here, so a long-running server "logged users out". Keep the
+      // cached profile and let the next request retry.
+      setSessionError("The API could not load your account. Try again shortly.");
+      if (!userRef.current) setStatus("unauthenticated");
     }
   }, [clearSession]);
 
@@ -254,7 +263,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Ensure the first request after a redirect sign-in carries a token.
       try {
         await firebaseUser.getIdToken();
-      } catch {
+      } catch (error) {
+        logError("handleSignedIn.getIdToken", error);
+        setSessionError(
+          "Could not reach Firebase to finish signing in. Check your connection and try again.",
+        );
         clearSession();
         return;
       }

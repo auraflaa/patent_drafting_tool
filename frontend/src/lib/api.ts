@@ -43,8 +43,34 @@ function notifyUnauthorized(context: string, path: string, detail: string) {
   }
 }
 
+/** Token failures that really mean the session is gone, not a network blip. */
+const FATAL_TOKEN_ERRORS = new Set([
+  "auth/user-disabled",
+  "auth/user-not-found",
+  "auth/user-token-expired",
+  "auth/invalid-user-token",
+]);
+
+/**
+ * Ask Firebase for the current ID token.
+ *
+ * Returning `null` here means "nobody is signed in". A refresh that *failed*
+ * must throw instead: sending the request unauthenticated turns a network
+ * blip into a 401, and a 401 deletes the user's session.
+ */
 async function authHeaders(): Promise<Record<string, string>> {
-  const token = await tokenProvider();
+  let token: string | null;
+  try {
+    token = await tokenProvider();
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code ?? "";
+    if (FATAL_TOKEN_ERRORS.has(code)) {
+      notifyUnauthorized("authHeaders", "(token refresh)", code);
+      throw new ApiError(401, "Your session has expired. Please sign in again.");
+    }
+    logError("authHeaders.tokenRefresh", error);
+    throw new ApiError(503, "Could not refresh your session with Firebase.");
+  }
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -59,6 +85,40 @@ export class ApiError extends Error {
 /** Log an error for debugging without surfacing it to the user. */
 export function logError(context: string, error: unknown): void {
   console.warn(`[${context}]`, error);
+}
+
+/** Ordinary API calls answer in well under a second; cap the wait anyway. */
+export const REQUEST_TIMEOUT_MS = 30_000;
+/** Uploads, downloads and in-process document generation legitimately run long. */
+export const LONG_REQUEST_TIMEOUT_MS = 180_000;
+
+/**
+ * `fetch` with a deadline.
+ *
+ * Without one, a backend that is alive but stalled (a wedged datastore
+ * connection) leaves every screen spinning with no way out. The deadline turns
+ * that into a clear, retryable error.
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if ((error as { name?: string } | null)?.name === "AbortError") {
+      throw new ApiError(
+        504,
+        `The server did not respond within ${Math.round(timeoutMs / 1000)} seconds.`,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -115,6 +175,10 @@ function friendlyMessage(status: number): string {
       return "The file is too large for this deployment.";
     case 415:
       return "This file type is not supported.";
+    case 503:
+      return "The server is temporarily unavailable. Please try again in a moment.";
+    case 504:
+      return "The server took too long to respond. Please try again.";
     default:
       return "Something went wrong. The error has been logged.";
   }
@@ -176,9 +240,11 @@ let capabilitiesRequest: Promise<RuntimeCapabilities> | null = null;
  */
 export function getRuntimeCapabilities(): Promise<RuntimeCapabilities> {
   if (!capabilitiesRequest) {
-    capabilitiesRequest = fetch(`${API_URL}/api/config/capabilities`, {
-      cache: "no-store",
-    })
+    capabilitiesRequest = fetchWithTimeout(
+      `${API_URL}/api/config/capabilities`,
+      { cache: "no-store" },
+      REQUEST_TIMEOUT_MS,
+    )
       .then(async (response) => {
         if (!response.ok) {
           throw new ApiError(
@@ -198,10 +264,17 @@ export function getRuntimeCapabilities(): Promise<RuntimeCapabilities> {
 
 interface ApiFetchOptions extends RequestInit {
   auth?: boolean; // defaults to true
+  /** Override the 30 s deadline (draft generation legitimately takes longer). */
+  timeoutMs?: number;
 }
 
 export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
-  const { auth = true, headers, ...rest } = options;
+  const {
+    auth = true,
+    headers,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+    ...rest
+  } = options;
 
   const finalHeaders: Record<string, string> = {
     "Content-Type": "application/json",
@@ -209,10 +282,11 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
     ...(auth ? await authHeaders() : {}),
   };
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...rest,
-    headers: finalHeaders,
-  });
+  const response = await fetchWithTimeout(
+    `${API_URL}${path}`,
+    { ...rest, headers: finalHeaders },
+    timeoutMs,
+  );
 
   if (!response.ok) {
     let detail = (await readErrorDetail(response)) ?? `Request failed (${response.status})`;
@@ -257,11 +331,15 @@ export async function apiUpload<T>(
     ? "?" + new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)])).toString()
     : "";
 
-  const response = await fetch(`${API_URL}${path}${qs}`, {
-    method: "POST",
-    headers: finalHeaders,
-    body: formData,
-  });
+  const response = await fetchWithTimeout(
+    `${API_URL}${path}${qs}`,
+    {
+      method: "POST",
+      headers: finalHeaders,
+      body: formData,
+    },
+    LONG_REQUEST_TIMEOUT_MS,
+  );
 
   if (!response.ok) {
     let detail = (await readErrorDetail(response)) ?? `Upload failed (${response.status})`;
@@ -305,7 +383,11 @@ function filenameFromDisposition(disposition: string, fallback: string): string 
 export async function apiDownload(path: string, fallbackFilename: string): Promise<void> {
   const finalHeaders: Record<string, string> = { ...(await authHeaders()) };
 
-  const response = await fetch(`${API_URL}${path}`, { headers: finalHeaders });
+  const response = await fetchWithTimeout(
+    `${API_URL}${path}`,
+    { headers: finalHeaders },
+    LONG_REQUEST_TIMEOUT_MS,
+  );
   if (!response.ok) {
     let detail = (await readErrorDetail(response)) ?? `Download failed (${response.status})`;
     if (response.status === 401) {
