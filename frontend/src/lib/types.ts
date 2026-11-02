@@ -395,8 +395,10 @@ export interface FileOut {
   converted_from_pdf: boolean;
   mime_type: string | null;
   file_size_bytes: number | null;
-  /** Best-effort text/figure extraction, run once after the upload is stored. */
+  /** Best-effort text/figure extraction, run once after the upload is stored.
+   * `not_analyzed` marks a file uploaded before extraction existed. */
   extraction_status:
+    | "not_analyzed"
     | "pending"
     | "ready"
     | "failed"

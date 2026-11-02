@@ -27,6 +27,7 @@ const EXTRACTION_STYLES: Record<
   string,
   { label: string; className: string }
 > = {
+  not_analyzed: { label: "Not analysed", className: "bg-slate-100 text-slate-500" },
   pending: { label: "Reading…", className: "bg-slate-100 text-slate-600" },
   ready: { label: "Ready for drafting", className: "bg-emerald-100 text-emerald-700" },
   failed: { label: "Extraction failed", className: "bg-red-100 text-red-700" },
@@ -52,8 +53,10 @@ function ExtractionBadge({ file }: { file: FileOut }) {
     .filter(Boolean)
     .join(" · ");
   const title =
-    file.extraction_error ??
-    (detail ? `Extracted ${detail}` : "No readable text was found in this file.");
+    file.extraction_status === "not_analyzed"
+      ? "This file was uploaded before documents were read for drafting. Re-upload it to use its text and figures as context."
+      : file.extraction_error ??
+        (detail ? `Extracted ${detail}` : "No readable text was found in this file.");
   return (
     <span
       className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${style.className}`}
@@ -67,7 +70,8 @@ function ExtractionBadge({ file }: { file: FileOut }) {
 /** Comments, supporting Files, and Calendar Events for one patent
  * application — shown to anyone who can view the application.
  * `canManageCalendar` gates calendar create/delete (assigned Agent or
- * Admin only, mirroring the backend's own check). */export function CollaborationPanel({
+ * Admin only, mirroring the backend's own check). */
+export function CollaborationPanel({
   patentId,
   canManageCalendar,
 }: {

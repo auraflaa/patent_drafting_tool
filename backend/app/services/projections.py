@@ -480,8 +480,9 @@ def file_out(doc: dict, user: dict | None) -> dict:
         "mime_type": doc.get("mime_type"),
         "file_size_bytes": doc.get("file_size_bytes"),
         # Extraction is best effort: "unsupported" and "failed" are normal
-        # values for a file the drafting model cannot read.
-        "extraction_status": doc.get("extraction_status") or "pending",
+        # values for a file the drafting model cannot read. Uploads from before
+        # extraction existed have no status at all.
+        "extraction_status": doc.get("extraction_status") or "not_analyzed",
         "extraction_figure_count": int(doc.get("extraction_figure_count") or 0),
         "extraction_page_count": int(doc.get("extraction_page_count") or 0),
         "extraction_text_available": bool(doc.get("extraction_text_available")),
