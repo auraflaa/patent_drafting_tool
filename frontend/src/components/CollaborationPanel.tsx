@@ -23,11 +23,51 @@ function formatDateTime(iso: string | null): string {
   });
 }
 
+const EXTRACTION_STYLES: Record<
+  string,
+  { label: string; className: string }
+> = {
+  pending: { label: "Reading…", className: "bg-slate-100 text-slate-600" },
+  ready: { label: "Ready for drafting", className: "bg-emerald-100 text-emerald-700" },
+  failed: { label: "Extraction failed", className: "bg-red-100 text-red-700" },
+  unsupported: { label: "No text extraction", className: "bg-slate-100 text-slate-500" },
+  unavailable: {
+    label: "Extraction unavailable",
+    className: "bg-amber-100 text-amber-700",
+  },
+};
+
+/** Shows whether the drafting model can read this upload. */
+function ExtractionBadge({ file }: { file: FileOut }) {
+  const style = EXTRACTION_STYLES[file.extraction_status] ?? EXTRACTION_STYLES.pending;
+  const detail = [
+    file.extraction_text_available ? "text" : null,
+    file.extraction_figure_count
+      ? `${file.extraction_figure_count} figure${file.extraction_figure_count === 1 ? "" : "s"}`
+      : null,
+    file.extraction_page_count
+      ? `${file.extraction_page_count} page${file.extraction_page_count === 1 ? "" : "s"}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const title =
+    file.extraction_error ??
+    (detail ? `Extracted ${detail}` : "No readable text was found in this file.");
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${style.className}`}
+      title={title}
+    >
+      {style.label}
+    </span>
+  );
+}
+
 /** Comments, supporting Files, and Calendar Events for one patent
  * application — shown to anyone who can view the application.
  * `canManageCalendar` gates calendar create/delete (assigned Agent or
- * Admin only, mirroring the backend's own check). */
-export function CollaborationPanel({
+ * Admin only, mirroring the backend's own check). */export function CollaborationPanel({
   patentId,
   canManageCalendar,
 }: {
@@ -220,6 +260,18 @@ function FilesSection({ patentId }: { patentId: string }) {
     }
   }
 
+  async function downloadExtractedText(f: FileOut) {
+    const stem = (f.original_file_name ?? `file-${f.id}`).replace(/\.[^.]+$/, "");
+    try {
+      await apiDownload(
+        `/api/patents/${patentId}/files/${f.id}/text`,
+        `${stem}-extracted.md`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to download extracted text");
+    }
+  }
+
   async function remove(f: FileOut) {
     setBusy(true);
     setError(null);
@@ -248,7 +300,12 @@ function FilesSection({ patentId }: { patentId: string }) {
             className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2"
           >
             <div>
-              <p className="text-sm font-medium text-slate-800">{f.original_file_name}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium text-slate-800">
+                  {f.original_file_name}
+                </p>
+                <ExtractionBadge file={f} />
+              </div>
               <p className="text-xs text-slate-400">
                 {formatFileSize(f.file_size_bytes)} · {f.uploaded_by_name ?? "Unknown"} ·{" "}
                 {formatDateTime(f.created_at)}
@@ -261,6 +318,15 @@ function FilesSection({ patentId }: { patentId: string }) {
               >
                 Download
               </button>
+              {f.extraction_text_available && (
+                <button
+                  onClick={() => downloadExtractedText(f)}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  title="The text the drafting model reads for this file"
+                >
+                  Extracted text
+                </button>
+              )}
               {(canDeleteAny || f.uploaded_by === user?.id) && (
                 <button
                   onClick={() => remove(f)}
@@ -279,6 +345,7 @@ function FilesSection({ patentId }: { patentId: string }) {
         <input
           ref={fileInputRef}
           type="file"
+          accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md"
           onChange={onFileChosen}
           disabled={busy}
           className="text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-slate-700"
@@ -287,7 +354,7 @@ function FilesSection({ patentId }: { patentId: string }) {
           {capabilities
             ? `Up to ${formatFileSize(capabilities.max_upload_size_bytes)} per upload, stored compressed in Firestore (about ${formatFileSize(capabilities.max_stored_size_bytes)} after compression).`
             : "Files are stored compressed in Firestore."}{" "}
-          Executable files aren't allowed.
+          PDF, Word, PowerPoint, text and Markdown files are read for drafting context.
         </p>
       </div>
     </div>

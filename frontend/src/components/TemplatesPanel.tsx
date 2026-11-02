@@ -59,8 +59,15 @@ export function TemplatesPanel() {
 
   async function handleUpload(file: File) {
     if (!selectedType) return;
-    if (!file.name.toLowerCase().endsWith(".docx")) {
-      setError("Only .docx template files are accepted.");
+    const name = file.name.toLowerCase();
+    const isWord = name.endsWith(".docx");
+    const isPdf = name.endsWith(".pdf");
+    if (!isWord && !isPdf) {
+      setError(
+        name.endsWith(".doc")
+          ? "Legacy .doc templates cannot be read. Save the file as .docx or PDF."
+          : "Templates must be a .docx or .pdf file.",
+      );
       return;
     }
     setUploading(true);
@@ -175,11 +182,11 @@ export function TemplatesPanel() {
           </select>
 
           <label className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 cursor-pointer">
-            {uploading ? "Uploading…" : "Upload new version (.docx)"}
+            {uploading ? "Uploading…" : "Upload new version (.docx or .pdf)"}
             <input
               ref={fileInputRef}
               type="file"
-              accept=".docx"
+              accept=".docx,.pdf"
               disabled={uploading}
               className="hidden"
               onChange={(e) => {
@@ -190,7 +197,8 @@ export function TemplatesPanel() {
           </label>
         </div>
         <p className="mt-2 text-xs text-slate-400">
-          Uploading activates the new version immediately. Placeholders the .docx can use:{" "}
+          PDF templates are converted to Word on upload. Uploading activates the new
+          version immediately. Placeholders the .docx can use:{" "}
           <code>{"{{ TITLE }} {{ WATERMARK_TEXT }} {{ ABSTRACT }} {{ BACKGROUND }} {{ SUMMARY }} {{ DESCRIPTION }} {{ CLAIMS }}"}</code>
         </p>
       </div>
@@ -250,7 +258,7 @@ export function TemplatesPanel() {
               <tr>
                 <td colSpan={5} className="px-3 py-6 text-center text-slate-400">
                   No templates uploaded yet for this document type — document generation will
-                  use the plain fallback layout.
+                  use the bundled Form 1 layout.
                 </td>
               </tr>
             )}

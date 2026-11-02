@@ -395,6 +395,17 @@ export interface FileOut {
   converted_from_pdf: boolean;
   mime_type: string | null;
   file_size_bytes: number | null;
+  /** Best-effort text/figure extraction, run once after the upload is stored. */
+  extraction_status:
+    | "pending"
+    | "ready"
+    | "failed"
+    | "unsupported"
+    | "unavailable";
+  extraction_figure_count: number;
+  extraction_page_count: number;
+  extraction_text_available: boolean;
+  extraction_error: string | null;
   created_at: string;
 }
 

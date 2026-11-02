@@ -28,7 +28,8 @@ export default function AdminDashboard() {
       <div className="mb-6 border-b border-slate-200 pb-2">
         <h2 className="text-sm font-semibold text-slate-900">Document Templates</h2>
         <p className="text-xs text-slate-500">
-          Upload and manage the .docx templates used when generating patent documents.
+          Upload and manage the Word or PDF templates used when generating patent
+          documents. Until one is uploaded, generation uses the bundled Form 1 layout.
         </p>
       </div>
       <TemplatesPanel />
