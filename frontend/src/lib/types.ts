@@ -439,6 +439,53 @@ export interface FormFinalizeOut {
   usable_figure_count: number;
 }
 
+// ---------------------------------------------------------------------------
+// AI field refinement
+// ---------------------------------------------------------------------------
+
+export interface RefinedGroupOut {
+  id: string;
+  group: "FORM_METADATA" | "FORM_BACKGROUND" | "FORM_EMBODIMENTS";
+  version_number: number;
+  fields: Record<string, string | null>;
+  origin: Record<string, "ai" | "user" | "fallback">;
+  figure_refs: Record<string, { id: string; label: string; page: number; source: string }>;
+  used_figures: string[];
+  warnings: string[];
+  ai_provider: string | null;
+  ai_model: string | null;
+  edited_by: string | null;
+  created_at: string;
+}
+
+export const REFINE_GROUPS = [
+  { code: "FORM_METADATA", label: "Identity & field" },
+  { code: "FORM_BACKGROUND", label: "Background & objects" },
+  { code: "FORM_EMBODIMENTS", label: "Embodiments" },
+] as const;
+
+export const REFINE_FIELD_LABELS: Record<string, string> = {
+  invention_keyword: "Invention keyword",
+  title_keyword: "Title keyword",
+  problem_keyword: "Problem keyword",
+  claim_keyword: "Claim subject",
+  data1: "Claim component 1",
+  data2: "Claim component 2",
+  field: "Field of invention",
+  domain: "Domain",
+  area: "Area",
+  one_line_about_field: "One line about the field",
+  two_lines_about_domain: "Two lines about the domain",
+  three_lines_about_area: "Three lines about the area",
+  four_lines_about_problem: "Four lines about the problem",
+  four_lines_about_solution: "Four lines about the solution",
+  advantage1: "First object",
+  advantage2: "Second object",
+  exemplary_scenario: "Exemplary scenario",
+  detailed_exemplary_scenario: "Detailed exemplary scenario",
+  best_working_method: "Best working method",
+};
+
 export type DocumentGenerationJobStatus = "Queued" | "Processing" | "Completed" | "Failed";
 
 export interface DocumentGenerationJobOut {
@@ -502,6 +549,8 @@ export interface FigureOut {
   has_image: boolean;
   usable: "usable" | "rejected" | "unknown";
   reason: string;
+  vision_caption: string;
+  vision_description: string;
   include_in_drawings: boolean;
   display_order: number;
 }

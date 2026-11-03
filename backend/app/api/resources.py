@@ -1,4 +1,4 @@
-"""Firestore-backed resource API.
+﻿"""Firestore-backed resource API.
 
 Every endpoint the React client calls is implemented here against Firebase
 Auth and Firestore, which also stores the compressed document bytes
@@ -9,6 +9,7 @@ parallel compatibility layer.
 """
 import csv
 import io
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -41,6 +42,7 @@ from app.services import blobs
 from app.services import documents as docgen
 from app.services import drafting
 from app.services import extraction_store
+from app.services import form_ai
 from app.services import form_generation
 from app.services import uploads
 from app.services.form_specs import BY_CODE as FORM_BY_CODE
@@ -62,6 +64,7 @@ from app.services.projections import (
     document_out,
     document_version_out,
     figure_out,
+    refined_group_out,
     file_out,
     inventor_out,
     is_patent_creator,
@@ -1703,6 +1706,19 @@ def _file_for_patent(patent_id: str, file_id: str) -> dict:
     return record
 
 
+@router.post("/patents/{patent_id}/figures/classify")
+def classify_figures(patent_id: str, user: dict = Depends(active_user)):
+    """Vision second opinion over figure candidates (multimodal provider)."""
+    patent = require_patent(patent_id, user)
+    if not can_review_draft(patent, user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only the assigned Patent Agent or an Admin can classify figures.",
+        )
+    ensure_permission(user, "DRAFTS_GENERATE")
+    return form_ai.classify_figures(patent_id)
+
+
 @router.get("/patents/{patent_id}/files/{file_id}/download")
 def download_file(patent_id: str, file_id: str, user: dict = Depends(active_user)):
     require_patent(patent_id, user)
@@ -2358,6 +2374,186 @@ def finalize_forms(patent_id: str, user: dict = Depends(active_user)):
         return form_generation.finalize(patent_id, user)
     except form_generation.FinalizeError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.post("/patents/{patent_id}/forms/refine")
+def refine_form_fields(
+    patent_id: str, payload: dict, user: dict = Depends(active_user)
+):
+
+    patent = require_patent(patent_id, user)
+    if not can_review_draft(patent, user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only the assigned Patent Agent or an Admin can refine fields.",
+        )
+    ensure_permission(user, "DRAFTS_GENERATE")
+    if patent.get("application_status") != "Under Review":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            'Refinement requires the application to be "Under Review".',
+        )
+    questionnaire = _questionnaire(patent_id)
+    if questionnaire.get("questionnaire_status") != "Completed":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Submit the questionnaire before refining fields.",
+        )
+    groups = payload.get("groups") or list(form_ai.GROUPS)
+    unknown = [group for group in groups if group not in form_ai.GROUPS]
+    if unknown:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Unknown group(s): " + ", ".join(unknown) + ".",
+        )
+    profile = form_generation.build_profile(patent_id)
+    raw = form_ai.required_raw_values(profile["questionnaire"])
+    versions = query_docs(
+        "questionnaire_versions",
+        filters=[("patent_application_id", "==", patent_id)],
+    )
+    questionnaire_version_id = (
+        max(versions, key=lambda doc: int(doc.get("version_number") or 0), default=None) or {}
+    ).get("id", questionnaire["id"])
+    existing = query_docs("drafts", filters=[("patent_application_id", "==", patent_id)])
+    created = []
+    for group in groups:
+        group_raw = {key: raw.get(key) for key in form_ai.AI_GROUPS[group]}
+        result = form_ai.refine_group(patent_id, profile, group, raw_values=group_raw)
+        version_number = 1 + max(
+            [
+                int(doc.get("version_number") or 0)
+                for doc in existing
+                if doc.get("section_type") == group
+            ]
+            or [0]
+        )
+        record = create_doc(
+            "drafts",
+            {
+                "patent_application_id": patent_id,
+                "questionnaire_version_id": questionnaire_version_id,
+                "section_type": group,
+                "version_number": version_number,
+                "ai_provider": result["provider"],
+                "ai_model": result["model"],
+                "ai_response": json.dumps(result["fields"], ensure_ascii=False),
+                "fields": result["fields"],
+                "origin": result["origin"],
+                "figure_refs": result["figure_refs"],
+                "used_figures": result.get("used_figures") or [],
+                "warnings": result["warnings"],
+                "edited_by": user["uid"],
+                "processing_status": "Completed",
+            },
+        )
+        existing.append(record)
+        created.append(refined_group_out(record))
+    log_activity(user["uid"], "FieldsRefined", "PatentApplication", patent_id)
+    return created
+
+
+@router.get("/patents/{patent_id}/form-fields")
+def get_form_fields(patent_id: str, user: dict = Depends(active_user)):
+
+    require_patent(patent_id, user)
+    ensure_permission(user, "DRAFTS_VIEW")
+    existing = query_docs("drafts", filters=[("patent_application_id", "==", patent_id)])
+    latest: dict[str, dict] = {}
+    for doc in existing:
+        if doc.get("section_type") not in form_ai.GROUPS:
+            continue
+        current = latest.get(doc["section_type"])
+        if current is None or int(doc.get("version_number") or 0) > int(
+            current.get("version_number") or 0
+        ):
+            latest[doc["section_type"]] = doc
+    return {group: refined_group_out(latest[group]) for group in latest}
+
+
+@router.patch("/patents/{patent_id}/form-fields")
+def update_form_fields(
+    patent_id: str, payload: dict, user: dict = Depends(active_user)
+):
+    from app.services.questionnaire_schema import FIELD_BY_KEY
+
+    patent = require_patent(patent_id, user)
+    if not can_review_draft(patent, user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only the assigned Patent Agent or an Admin can edit refined fields.",
+        )
+    ensure_permission(user, "DRAFTS_GENERATE")
+    group = payload.get("group")
+    if group not in form_ai.GROUPS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Unknown group. Expected one of: " + ", ".join(form_ai.GROUPS) + ".",
+        )
+    fields = payload.get("fields")
+    if not isinstance(fields, dict) or not fields:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "fields must be a non-empty object."
+        )
+    allowed = set(form_ai.AI_GROUPS[group])
+    unknown = sorted(set(fields) - allowed)
+    if unknown:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Unknown field(s) for this group: " + ", ".join(unknown) + ".",
+        )
+    cleaned: dict[str, str | None] = {}
+    for key, value in fields.items():
+        if value is None:
+            cleaned[key] = None
+            continue
+        if not isinstance(value, str):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, f"{key} must be a string."
+            )
+        limit = FIELD_BY_KEY[key].limit
+        if len(value.strip()) > limit:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"{key} must be at most {limit} characters.",
+            )
+        cleaned[key] = value.strip() or None
+    existing = query_docs("drafts", filters=[("patent_application_id", "==", patent_id)])
+    group_rows = [doc for doc in existing if doc.get("section_type") == group]
+    base = max(group_rows, key=lambda doc: int(doc.get("version_number") or 0), default=None)
+    if base is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Refine this group with AI first, then edit the result.",
+        )
+    merged = dict(base.get("fields") or {})
+    origin = dict(base.get("origin") or {})
+    for key, value in cleaned.items():
+        merged[key] = value
+        origin[key] = "user"
+    version_number = 1 + max(
+        [int(doc.get("version_number") or 0) for doc in group_rows] or [0]
+    )
+    record = create_doc(
+        "drafts",
+        {
+            "patent_application_id": patent_id,
+            "questionnaire_version_id": base.get("questionnaire_version_id"),
+            "section_type": group,
+            "version_number": version_number,
+            "ai_provider": base.get("ai_provider"),
+            "ai_model": base.get("ai_model"),
+            "ai_response": json.dumps(merged, ensure_ascii=False),
+            "fields": merged,
+            "origin": origin,
+            "figure_refs": base.get("figure_refs") or {},
+            "used_figures": base.get("used_figures") or [],
+            "warnings": [],
+            "edited_by": user["uid"],
+            "processing_status": "Completed",
+        },
+    )
+    return refined_group_out(record)
 
 
 # ---------------------------------------------------------------------------

@@ -479,6 +479,8 @@ def figure_out(doc: dict) -> dict:
         "has_image": bool(doc.get("has_image")),
         "usable": doc.get("usable") or "unknown",
         "reason": doc.get("reason") or "",
+        "vision_caption": doc.get("vision_caption") or "",
+        "vision_description": doc.get("vision_description") or "",
         "include_in_drawings": doc.get("include_in_drawings", True),
         "display_order": int(doc.get("display_order") or 0),
     }
@@ -534,6 +536,23 @@ def document_version_out(doc: dict) -> dict:
         "generated_at": _iso(doc.get("generated_at")),
         "figures_embedded": doc.get("figures_embedded") or [],
         "figures_omitted": doc.get("figures_omitted") or [],
+    }
+
+
+def refined_group_out(doc: dict) -> dict:
+    return {
+        "id": doc["id"],
+        "group": doc.get("section_type"),
+        "version_number": int(doc.get("version_number") or 1),
+        "fields": doc.get("fields") or {},
+        "origin": doc.get("origin") or {},
+        "figure_refs": doc.get("figure_refs") or {},
+        "used_figures": doc.get("used_figures") or [],
+        "warnings": doc.get("warnings") or [],
+        "ai_provider": doc.get("ai_provider"),
+        "ai_model": doc.get("ai_model"),
+        "edited_by": doc.get("edited_by"),
+        "created_at": _iso(doc.get("created_at")),
     }
 
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { apiDownload, apiFetch, apiUpload, getFriendlyError, getRuntimeCapabilities } from "../lib/api";
+import { apiDownload, apiFetch, apiUpload, getFriendlyError, getRuntimeCapabilities, LONG_REQUEST_TIMEOUT_MS } from "../lib/api";
+import { FiguresStrip } from "./FiguresStrip";
 import { formatFileSize } from "../lib/format";
 import type { RuntimeCapabilities } from "../lib/api";
 import { LoadingState } from "./LoadingState";
@@ -289,6 +290,23 @@ function FilesSection({ patentId }: { patentId: string }) {
     }
   }
 
+  async function classify() {
+    setBusy(true);
+    setError(null);
+    try {
+      const out = await apiFetch<{ classified: number; warning?: string }>(
+        `/api/patents/${patentId}/figures/classify`,
+        { method: "POST", timeoutMs: LONG_REQUEST_TIMEOUT_MS },
+      );
+      if (out.warning) setError(out.warning);
+      await load();
+    } catch (err) {
+      setError(getFriendlyError("CollaborationPanel.classify", err, "Failed to classify drawings"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div>
       {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
@@ -301,8 +319,9 @@ function FilesSection({ patentId }: { patentId: string }) {
         {files?.map((f) => (
           <div
             key={f.id}
-            className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2"
+            className="rounded-md border border-slate-200 px-3 py-2"
           >
+            <div className="flex items-center justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm font-medium text-slate-800">
@@ -341,6 +360,8 @@ function FilesSection({ patentId }: { patentId: string }) {
                 </button>
               )}
             </div>
+            </div>
+            <FiguresStrip patentId={patentId} file={f} />
           </div>
         ))}
       </div>
@@ -361,6 +382,14 @@ function FilesSection({ patentId }: { patentId: string }) {
           PDF, Word, PowerPoint, text, Markdown and image files are read for drafting context.
           Diagrams and sketches (PNG/JPEG) become figure candidates for the drawings sheet.
         </p>
+        <button
+          onClick={classify}
+          disabled={busy}
+          title="Ask the vision model to judge drawing candidates (needs AI vision enabled)"
+          className="mt-2 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        >
+          {busy ? "Classifying…" : "Classify drawings with vision"}
+        </button>
       </div>
     </div>
   );

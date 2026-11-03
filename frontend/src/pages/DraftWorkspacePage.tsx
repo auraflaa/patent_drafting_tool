@@ -7,6 +7,7 @@ import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { StatusBadge } from "../components/StatusBadge";
 import { BasicInfoTab, QuestionnaireTab } from "../components/PatentDetailTabs";
+import { RefinePanel } from "../components/RefinePanel";
 import { FormsPanel } from "../components/FormsPanel";
 import { apiFetch, getFriendlyError, LONG_REQUEST_TIMEOUT_MS } from "../lib/api";
 import { homePathFor } from "../lib/roles";
@@ -319,6 +320,11 @@ export default function DraftWorkspacePage() {
                   ?.processing_status === "Completed",
             )}
             onChanged={loadPatent}
+          />
+
+          <RefinePanel
+            patentId={patentId}
+            canRefine={canGenerate}
           />
 
           <FormsPanel

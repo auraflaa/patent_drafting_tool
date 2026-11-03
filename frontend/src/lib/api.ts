@@ -377,6 +377,30 @@ function filenameFromDisposition(disposition: string, fallback: string): string 
   return bare ? bare[1].trim().replace(/^"|"$/g, "") : fallback;
 }
 
+/** For inline images (figure thumbnails) — same auth, but returns an object
+ * URL for <img src> instead of triggering a download. Revoke it when done. */
+export async function apiImageUrl(path: string): Promise<string> {
+  const finalHeaders: Record<string, string> = { ...(await authHeaders()) };
+
+  const response = await fetchWithTimeout(
+    `${API_URL}${path}`,
+    { headers: finalHeaders },
+    LONG_REQUEST_TIMEOUT_MS,
+  );
+  if (!response.ok) {
+    let detail = (await readErrorDetail(response)) ?? `Image failed (${response.status})`;
+    if (response.status === 401) {
+      notifyUnauthorized("apiImageUrl", path, detail);
+      detail = "Your session has expired. Please sign in again.";
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  reportedUnauthorized = false;
+
+  return URL.createObjectURL(await response.blob());
+}
+
 /** For binary downloads (PDF/DOCX) — apiFetch always parses JSON, so this
  * fetches the blob directly, reads the filename from Content-Disposition,
  * and triggers a normal browser download via a throwaway <a> tag. */
