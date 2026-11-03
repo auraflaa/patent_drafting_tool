@@ -12,9 +12,9 @@ Extraction can never fail an upload. The file is already stored when this runs,
 so every problem is returned as an ``Extraction`` whose ``status`` explains it:
 ``ready``, ``failed``, ``unsupported`` or ``unavailable``.
 
-Figure classification is optional. YOLOX-tiny weights are never committed
-(AGENTS.md); without ``YOLOX_MODEL_PATH`` the OpenDataLoader boxes are stored
-unchanged and simply carry no label.
+Figure detection is optional. YOLOv10-b DocLayNet weights (Apache-2.0) are
+never committed; without ``YOLO_MODEL_PATH`` the pipeline uses embedded
+images and direct uploads only.
 """
 from __future__ import annotations
 
@@ -45,6 +45,7 @@ PDF_EXTENSIONS = {".pdf"}
 WORD_EXTENSIONS = {".docx"}
 SLIDE_EXTENSIONS = {".pptx"}
 TEXT_EXTENSIONS = {".txt", ".md"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
 # "FIG. 2", "Figure 2A", "TABLE 3" - the labels examiners actually use.
 _CAPTION_RE = re.compile(
@@ -72,6 +73,8 @@ class Figure:
     image: bytes | None = None
     content_type: str = "image/jpeg"
     source_name: str = ""
+    # Set by the producer when known ("usable"); screening decides otherwise.
+    usable: str | None = None
 
 
 @dataclass
@@ -108,6 +111,8 @@ def extract(filename: str, content: bytes) -> Extraction:
             result = _extract_pptx(content)
         elif extension in TEXT_EXTENSIONS:
             result = _extract_text(content)
+        elif extension in IMAGE_EXTENSIONS:
+            result = _extract_image(content, extension)
         elif extension == ".doc":
             result = Extraction(
                 status=UNSUPPORTED,
@@ -143,8 +148,6 @@ def extract(filename: str, content: bytes) -> Extraction:
             error=_short_error(exc),
         )
     result.figures = result.figures[: settings.max_figures_per_file]
-    if settings.yolox_model_path and result.figures:
-        _classify(result.figures)
     return result
 
 
@@ -211,6 +214,15 @@ def _extract_pdf(content: bytes) -> Extraction:
                 )
         elements = list(_walk_elements(data))
         figures = _pdf_figures(elements, output)
+        if settings.yolo_model_path:
+            # Vector drawings have no embedded images; the detector finds
+            # them on the rendered page. Duplicates of OpenDataLoader boxes
+            # are dropped by IoU.
+            from app.services import figure_detection
+
+            figures = figure_detection.merge_detections(
+                figures, figure_detection.detect_pdf_figures(content)
+            )
         page_count = int(data.get("number of pages") or 0)
         if not page_count:
             page_count = max((figure.page for figure in figures), default=0)
@@ -486,6 +498,36 @@ def _embedded_figure(part, rel_id: str, caption: str) -> Figure | None:
 
 
 # ---------------------------------------------------------------------------
+# Direct image uploads
+# ---------------------------------------------------------------------------
+
+
+def _extract_image(content: bytes, extension: str) -> Extraction:
+    """Treat an uploaded image as a single figure candidate."""
+    prepared = _prepare_image(content)
+    figures: list[Figure] = []
+    if prepared is not None:
+        image, content_type = prepared
+        figures.append(
+            Figure(
+                page=0,
+                kind="image",
+                image=image,
+                content_type=content_type,
+            )
+        )
+    return Extraction(
+        status=READY if figures else FAILED,
+        method="image",
+        text="",
+        layout={"elements": []},
+        figures=figures,
+        page_count=0,
+        error="" if figures else "The image could not be read.",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Plain text
 # ---------------------------------------------------------------------------
 
@@ -552,104 +594,6 @@ def _prepare_image(raw: bytes) -> tuple[bytes, str] | None:
         if ok and buffer.nbytes <= _MAX_FIGURE_BYTES:
             return buffer.tobytes(), "image/jpeg"
     return None
-
-
-# ---------------------------------------------------------------------------
-# Optional YOLOX labelling
-# ---------------------------------------------------------------------------
-
-_YOLOX_SESSION = None
-_YOLOX_PATH = ""
-
-
-def _classify(figures: list[Figure]) -> None:
-    """Label figures when a usable model is configured.
-
-    Any failure is logged and ignored: classification is an enhancement, and a
-    missing or mismatched weight file must not degrade extraction.
-    """
-    try:
-        session, input_size, classes = _yolox_session()
-        for figure in figures:
-            if figure.kind != "image" or not figure.image:
-                continue
-            label, confidence = _yolox_top_class(session, figure.image, input_size, classes)
-            if label or confidence is not None:
-                figure.label = label or figure.label
-                figure.confidence = confidence
-    except Exception as exc:  # noqa: BLE001 - never fail extraction for a label
-        logger.warning(
-            "yolox_disabled",
-            extra={"event": "yolox_disabled", "error_type": type(exc).__name__},
-            exc_info=exc,
-        )
-
-
-def _yolox_session():
-    global _YOLOX_SESSION, _YOLOX_PATH
-    path = settings.yolox_model_path
-    if _YOLOX_SESSION is not None and _YOLOX_PATH == path:
-        return _YOLOX_SESSION, settings.yolox_input_size, _class_names()
-    import onnxruntime as ort
-
-    session = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
-    _YOLOX_SESSION = session
-    _YOLOX_PATH = path
-    return session, settings.yolox_input_size, _class_names()
-
-
-def _class_names() -> list[str]:
-    return [
-        name.strip()
-        for name in settings.yolox_classes.split(",")
-        if name.strip()
-    ]
-
-
-def _yolox_top_class(
-    session, image: bytes, input_size: int, classes: list[str]
-) -> tuple[str, float | None]:
-    import cv2
-    import numpy as np
-
-    decoded = cv2.imdecode(np.frombuffer(image, np.uint8), cv2.IMREAD_COLOR)
-    if decoded is None:
-        return "", None
-    height, width = decoded.shape[:2]
-    scale = min(input_size / width, input_size / height)
-    resized = cv2.resize(
-        decoded,
-        (max(1, int(width * scale)), max(1, int(height * scale))),
-        interpolation=cv2.INTER_LINEAR,
-    )
-    canvas = np.full((input_size, input_size, 3), 114, dtype=np.uint8)
-    top = (input_size - resized.shape[0]) // 2
-    left = (input_size - resized.shape[1]) // 2
-    canvas[top : top + resized.shape[0], left : left + resized.shape[1]] = resized
-    tensor = canvas.transpose(2, 0, 1).astype("float32") / 255.0
-    tensor = tensor[None, ...]
-    input_name = session.get_inputs()[0].name
-    outputs = session.run(None, {input_name: tensor})
-    detections = outputs[0]
-    if detections.ndim == 3:
-        detections = detections[0]
-    # Decoded YOLOX exports end in (x1, y1, x2, y2, score, class). A raw head
-    # ends in 5 + classes boxes, which would need grid decoding and would be
-    # read as garbage here, so refuse anything that is not the decoded shape.
-    if detections.ndim != 2 or detections.shape[1] not in (6, 7):
-        return "", None
-    best_score = -1.0
-    best_class = -1
-    for row in detections:
-        score = float(row[4])
-        if score < settings.yolox_confidence or score <= best_score:
-            continue
-        best_score = score
-        best_class = int(row[5])
-    if best_class < 0:
-        return "", None
-    label = classes[best_class] if 0 <= best_class < len(classes) else ""
-    return label, round(best_score, 4)
 
 
 # ---------------------------------------------------------------------------

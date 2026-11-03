@@ -59,16 +59,6 @@ class Settings(BaseSettings):
     # OpenDataLoader is a JVM tool. `python -m opendataloader_pdf` needs a
     # `java` on PATH; leave empty to use the one the interpreter finds.
     java_binary: str = ''
-    # Optional YOLOX-tiny ONNX classifier for figure types. Weight files are
-    # never committed (AGENTS.md): unset means classification stays off and
-    # OpenDataLoader's own bounding boxes are used unchanged.
-    yolox_model_path: str = ''
-    # Comma-separated class names in model order. Empty means the model's
-    # labels are not trusted (a stock COCO model cannot name patent drawings),
-    # so detections only raise the figure's confidence, never rename it.
-    yolox_classes: str = ''
-    yolox_input_size: int = Field(default=416, ge=64, le=1280)
-    yolox_confidence: float = Field(default=0.35, ge=0.0, le=1.0)
     max_figures_per_file: int = Field(default=60, ge=1, le=500)
     # Drafting context budget: extracted text is truncated to this many
     # characters so a 200-page filing cannot crowd out the questionnaire.
@@ -95,12 +85,25 @@ class Settings(BaseSettings):
     ai_vision_max_edge_px: int = Field(default=512, ge=128, le=1024)
     # Optional YOLO figure detector over rendered PDF pages (pluggable ONNX;
     # weights are never committed). Empty means detection stays off and the
-    # pipeline uses embedded images and direct uploads only. `yolo_provider`
-    # is `cpu` or `cuda`.
+    # pipeline uses embedded images and direct uploads only. Recommended:
+    # YOLOv10-b trained on DocLayNet (Apache-2.0, e.g. the
+    # `Oblix/yolov10b-doclaynet_ONNX` mirror of `hantian/yolo-doclaynet`):
+    # input (1,3,640,640) RGB /255 letterboxed, output (1,300,6)
+    # [xmin,ymin,xmax,ymax,score,class] already post-NMS. DocLayout-YOLO was
+    # evaluated and rejected: it is AGPL-3.0, which a filing SaaS cannot ship.
     yolo_model_path: str = ''
+    # `cpu` or `cuda`. CUDA falls back to CPU when unavailable.
     yolo_provider: str = 'cpu'
     yolo_confidence: float = Field(default=0.35, ge=0.0, le=1.0)
-    yolo_classes: str = ''
+    # Class names in model order for the recommended weights.
+    yolo_classes: str = (
+        'Caption,Footnote,Formula,List-item,Page-footer,Page-header,'
+        'Picture,Section-header,Table,Text,Title'
+    )
+    # Which of those classes become figure candidates.
+    yolo_figure_classes: str = 'Picture,Table'
+    yolo_input_size: int = Field(default=640, ge=320, le=1280)
+    yolo_max_pages: int = Field(default=30, ge=1, le=200)
 
     @property
     def allowed_extensions(self) -> tuple[str, ...]:

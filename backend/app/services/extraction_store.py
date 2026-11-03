@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 
-from app.core.config import MAX_STORED_BYTES
+from app.core.config import MAX_STORED_BYTES, settings
 from app.services import blobs, ingestion
 from app.services.ingestion import FAILED, READY, Extraction, Figure
 from app.services.repository import (
@@ -83,9 +83,50 @@ def save_extraction(
         },
         doc_id=file_id,
     )
-    for figure in extraction.figures:
-        _save_figure(file_id, patent_id, figure)
+    known_hashes = _patent_figure_hashes(patent_id)
+    for order, figure in enumerate(extraction.figures):
+        _save_figure(
+            file_id, patent_id, figure, order=order, known_hashes=known_hashes
+        )
     return record
+
+
+def usable_figure_count(patent_id: str) -> int:
+    """Figures selected for the drawings sheet: usable and included."""
+    try:
+        rows = query_docs(
+            FIGURES, filters=[("patent_application_id", "==", patent_id)]
+        )
+    except Exception:  # noqa: BLE001 - the gate degrades to zero
+        return 0
+    return sum(
+        1
+        for row in rows
+        if row.get("usable") == "usable"
+        and row.get("include_in_drawings", True)
+        and row.get("has_image")
+    )
+
+
+def figures_for_patent(patent_id: str) -> list[dict]:
+    """Every figure row for a patent, in drawing-sheet order."""
+    rows = query_docs(FIGURES, filters=[("patent_application_id", "==", patent_id)])
+    return sort_docs(sort_docs(rows, "page"), "display_order")
+
+
+def _patent_figure_hashes(patent_id: str) -> set[str]:
+    """Perceptual hashes of figures already stored for duplicate screening."""
+    try:
+        rows = query_docs(
+            FIGURES, filters=[("patent_application_id", "==", patent_id)]
+        )
+    except Exception:  # noqa: BLE001 - screening degrades to per-file
+        return set()
+    return {
+        row.get("perceptual_hash")
+        for row in rows
+        if row.get("perceptual_hash")
+    }
 
 
 def ingest_upload(
@@ -141,7 +182,34 @@ def ingest_upload(
     }
 
 
-def _save_figure(file_id: str, patent_id: str, figure: Figure) -> None:
+def _save_figure(
+    file_id: str,
+    patent_id: str,
+    figure: Figure,
+    *,
+    order: int = 0,
+    known_hashes: set[str] | None = None,
+) -> None:
+    """Store one figure row, screening the image deterministically first."""
+    from app.services import figure_quality
+
+    usable = figure.usable
+    reason = ""
+    digest = ""
+    if figure.image:
+        ok, reason, digest = figure_quality.screen(
+            figure.image,
+            min_edge_px=settings.min_figure_edge_px,
+            known_hashes=known_hashes,
+        )
+        if usable is None:
+            usable = "usable" if ok else "rejected"
+        if digest and known_hashes is not None:
+            known_hashes.add(digest)
+    elif usable is None:
+        # Tables from DOCX/PPTX carry no pixels; they are referenceable
+        # but never embeddable.
+        usable = "unknown"
     image_blob_id = None
     if figure.image:
         try:
@@ -172,6 +240,12 @@ def _save_figure(file_id: str, patent_id: str, figure: Figure) -> None:
             "content_type": figure.content_type,
             "has_image": image_blob_id is not None,
             "image_blob_id": image_blob_id,
+            "usable": usable or "unknown",
+            "reason": reason,
+            "perceptual_hash": digest,
+            "caption_override": "",
+            "include_in_drawings": True,
+            "display_order": order,
         },
     )
 

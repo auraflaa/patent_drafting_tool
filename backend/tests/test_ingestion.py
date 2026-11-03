@@ -181,45 +181,16 @@ def test_docx_extraction_reads_paragraphs_and_tables():
     assert result.figures[0].kind == "table"
 
 
-def test_yolox_reads_only_decoded_detections(monkeypatch):
-    class Session:
-        def get_inputs(self):
-            return [type("Input", (), {"name": "images"})()]
+def test_direct_image_upload_becomes_a_figure():
+    result = ingestion.extract("sketch.png", _jpeg())
 
-        def run(self, _outputs, _feeds):
-            return [
-                np.array(
-                    [
-                        [
-                            [0, 0, 10, 10, 0.92, 0],
-                            [0, 0, 10, 10, 0.10, 1],
-                        ]
-                    ],
-                    dtype=np.float32,
-                )
-            ]
-
-    monkeypatch.setattr(ingestion.settings, "yolox_confidence", 0.35)
-
-    label, confidence = ingestion._yolox_top_class(
-        Session(), _jpeg(), 416, ["figure", "chart"]
-    )
-
-    assert label == "figure"
-    assert confidence == pytest.approx(0.92)
+    assert result.status == ingestion.READY
+    assert len(result.figures) == 1
+    assert result.figures[0].kind == "image"
+    assert result.figures[0].image is not None
 
 
-def test_yolox_refuses_a_raw_head_that_needs_grid_decoding(monkeypatch):
-    class Session:
-        def get_inputs(self):
-            return [type("Input", (), {"name": "images"})()]
+def test_direct_image_upload_rejects_garbage():
+    result = ingestion.extract("sketch.png", b"not an image at all" * 500)
 
-        def run(self, _outputs, _feeds):
-            return [np.zeros((1, 100, 85), dtype=np.float32)]
-
-    monkeypatch.setattr(ingestion.settings, "yolox_confidence", 0.1)
-
-    label, confidence = ingestion._yolox_top_class(Session(), _jpeg(), 416, [])
-
-    assert label == ""
-    assert confidence is None
+    assert result.status == ingestion.FAILED

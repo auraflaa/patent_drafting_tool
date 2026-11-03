@@ -441,6 +441,22 @@ export interface CommentOut {
   created_at: string;
 }
 
+export interface FigureOut {
+  id: string;
+  file_id: string;
+  page: number;
+  bbox: number[];
+  kind: string;
+  caption: string;
+  label: string;
+  confidence: number | null;
+  has_image: boolean;
+  usable: "usable" | "rejected" | "unknown";
+  reason: string;
+  include_in_drawings: boolean;
+  display_order: number;
+}
+
 export interface FileOut {
   id: string;
   patent_application_id: string;

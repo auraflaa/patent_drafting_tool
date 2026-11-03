@@ -473,10 +473,14 @@ def figure_out(doc: dict) -> dict:
         "page": int(doc.get("page") or 0),
         "bbox": doc.get("bbox") or [],
         "kind": doc.get("kind") or "image",
-        "caption": doc.get("caption") or "",
+        "caption": doc.get("caption_override") or doc.get("caption") or "",
         "label": doc.get("label") or "",
         "confidence": doc.get("confidence"),
         "has_image": bool(doc.get("has_image")),
+        "usable": doc.get("usable") or "unknown",
+        "reason": doc.get("reason") or "",
+        "include_in_drawings": doc.get("include_in_drawings", True),
+        "display_order": int(doc.get("display_order") or 0),
     }
 
 

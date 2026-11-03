@@ -1634,6 +1634,66 @@ def download_figure_image(
     )
 
 
+@router.patch("/patents/{patent_id}/files/{file_id}/figures/{figure_id}")
+def update_figure(
+    patent_id: str,
+    file_id: str,
+    figure_id: str,
+    payload: dict,
+    user: dict = Depends(active_user),
+):
+    """Review a figure: caption override, include/exclude, or "use anyway".
+
+    Screening rejects what is clearly not a drawing; the user may override a
+    rejection with a recorded reason. The override is stored, not the pixels.
+    """
+    require_patent(patent_id, user)
+    ensure_permission(user, "FILES_UPLOAD")
+    _file_for_patent(patent_id, file_id)
+    figure = extraction_store.get_figure(figure_id)
+    if figure is None or figure.get("file_id") != file_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Figure not found.")
+    patch: dict = {}
+    if "caption" in payload:
+        caption = payload["caption"]
+        if caption is not None and not isinstance(caption, str):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "caption must be a string."
+            )
+        patch["caption_override"] = (caption or "").strip()[:500] or None
+    if "include_in_drawings" in payload:
+        include = payload["include_in_drawings"]
+        if not isinstance(include, bool):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "include_in_drawings must be a boolean.",
+            )
+        patch["include_in_drawings"] = include
+    if "usable" in payload:
+        usable = payload["usable"]
+        if usable not in ("usable", "rejected"):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "usable must be 'usable' or 'rejected'.",
+            )
+        patch["usable"] = usable
+        if usable == "usable" and figure.get("usable") == "rejected":
+            patch["reason"] = "approved by user"
+    if "display_order" in payload:
+        try:
+            patch["display_order"] = max(0, int(payload["display_order"]))
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "display_order must be an integer.",
+            ) from None
+    if not patch:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "Nothing to update."
+        )
+    return figure_out(patch_doc("file_figures", figure_id, patch))
+
+
 def _file_for_patent(patent_id: str, file_id: str) -> dict:
     record = get_doc("files", file_id)
     if record.get("patent_application_id") != patent_id:

@@ -349,7 +349,7 @@ function FilesSection({ patentId }: { patentId: string }) {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md"
+          accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.png,.jpg,.jpeg"
           onChange={onFileChosen}
           disabled={busy}
           className="text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-slate-700"
@@ -358,7 +358,8 @@ function FilesSection({ patentId }: { patentId: string }) {
           {capabilities
             ? `Up to ${formatFileSize(capabilities.max_upload_size_bytes)} per upload, stored compressed in Firestore (about ${formatFileSize(capabilities.max_stored_size_bytes)} after compression).`
             : "Files are stored compressed in Firestore."}{" "}
-          PDF, Word, PowerPoint, text and Markdown files are read for drafting context.
+          PDF, Word, PowerPoint, text, Markdown and image files are read for drafting context.
+          Diagrams and sketches (PNG/JPEG) become figure candidates for the drawings sheet.
         </p>
       </div>
     </div>
