@@ -175,7 +175,7 @@ export function RefinePanel({ patentId, canRefine }: Props) {
                   <div className="space-y-3">
                     {Object.keys(group.fields).map((key) => (
                       <div key={key}>
-                        <label className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-600">
+                        <label htmlFor={`refine-${code}-${key}`} className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-600">
                           {REFINE_FIELD_LABELS[key] ?? key}
                           {group.origin[key] === "user" && (
                             <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
@@ -189,6 +189,7 @@ export function RefinePanel({ patentId, canRefine }: Props) {
                           )}
                         </label>
                         <textarea
+                          id={`refine-${code}-${key}`}
                           value={drafts[code]?.[key] ?? ""}
                           disabled={!canRefine}
                           onChange={(e) =>

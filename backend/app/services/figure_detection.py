@@ -112,8 +112,14 @@ def _detect(pdf_bytes: bytes) -> list[Figure]:
     figures: list[Figure] = []
 
     with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf:
-        pages = min(len(pdf), settings.yolo_max_pages)
-        for page_number in range(pages):
+        total = len(pdf)
+        # Patent drawings sit at the end of the document; scan the last
+        # pages first so the cap covers them, then the front if budget
+        # remains. Page numbers below are 1-based document pages.
+        last = list(range(max(0, total - settings.yolo_max_pages), total))
+        first = list(range(0, max(0, total - settings.yolo_max_pages)))
+        order = last + first[: max(0, settings.yolo_max_pages - len(last))]
+        for page_number in order:
             page = pdf[page_number]
             # Render at ~150 DPI, then letterbox to the model input.
             zoom = 150 / 72

@@ -19,11 +19,12 @@ def _jpeg(width: int = 400, height: int = 300, value: int = 240) -> bytes:
     return buffer.tobytes()
 
 
-def _pdf_bytes() -> bytes:
+def _pdf_bytes(pages: int = 1) -> bytes:
     import fitz
 
     with fitz.open() as pdf:
-        pdf.new_page(width=595, height=842)
+        for _ in range(pages):
+            pdf.new_page(width=595, height=842)
         return pdf.tobytes()
 
 
@@ -77,6 +78,28 @@ def test_detector_returns_picture_and_table_candidates(monkeypatch):
     assert len(figures[0].bbox) == 4
     assert figures[0].image is not None
     assert figures[1].kind == "table"
+
+
+def test_detector_scans_the_last_pages_first(monkeypatch):
+    _configure(monkeypatch)
+    seen = []
+
+    class Session:
+        def get_inputs(self):
+            return [type("Input", (), {"name": "images"})()]
+
+        def run(self, _outputs, _feeds):
+            seen.append(True)
+            return [np.zeros((1, 300, 6), dtype=np.float32)]
+
+    monkeypatch.setattr(figure_detection, "_session", lambda: Session())
+    monkeypatch.setattr(figure_detection.settings, "yolo_model_path", "dummy.onnx")
+    monkeypatch.setattr(figure_detection.settings, "yolo_max_pages", 2)
+
+    figures = figure_detection.detect_pdf_figures(_pdf_bytes(pages=3))
+
+    assert figures == []
+    assert len(seen) == 2  # only the last two pages were rendered
 
 
 def test_detector_is_off_without_a_model_path(monkeypatch):

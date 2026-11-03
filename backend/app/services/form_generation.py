@@ -134,6 +134,9 @@ def generate_form_set(
     profile = build_profile(patent_id, counts)
     context = profile_context(profile)
     figures = _selected_figures(patent_id)
+    # The drawings count is derived from the selected figures; claim and
+    # page counts stay manual until the review UI supplies them.
+    context["drawing_count"] = str(len(figures))
     results = []
     for code in wanted:
         results.append(_render_one(patent_id, user, batch_id, code, context, figures))

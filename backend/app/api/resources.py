@@ -2417,7 +2417,17 @@ def refine_form_fields(
     ).get("id", questionnaire["id"])
     existing = query_docs("drafts", filters=[("patent_application_id", "==", patent_id)])
     created = []
+    started = time.monotonic()
     for group in groups:
+        if created and time.monotonic() - started > form_ai.BATCH_DEADLINE_SECONDS:
+            # A degraded provider must not hold the request past the client
+            # timeout; remaining groups keep their previous versions and can
+            # be refined individually.
+            logger.info(
+                "refine_batch_deadline_reached",
+                extra={"patent_id": patent_id, "refined": len(created)},
+            )
+            break
         group_raw = {key: raw.get(key) for key in form_ai.AI_GROUPS[group]}
         result = form_ai.refine_group(patent_id, profile, group, raw_values=group_raw)
         version_number = 1 + max(

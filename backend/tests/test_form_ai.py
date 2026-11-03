@@ -1,10 +1,10 @@
-"""Tests for AI field refinement: validation, stub fallback, and endpoints."""
+﻿"""Tests for AI field refinement: validation, stub fallback, and endpoints."""
 import json
 
 import pytest
 
 from app.api import resources
-from app.services import form_ai
+from app.services import extraction_store, form_ai
 
 
 def _raw():
@@ -164,7 +164,7 @@ def _route_stubs(monkeypatch, **overrides):
 
 
 def test_refine_route_stores_one_row_per_group(monkeypatch):
-    created = _route_stubs(monkeypatch)
+    _route_stubs(monkeypatch)
     monkeypatch.setattr(
         resources.form_generation,
         "build_profile",
@@ -199,7 +199,7 @@ def test_update_form_fields_creates_a_user_version(monkeypatch):
         "fields": {"invention_keyword": "old"},
         "origin": {"invention_keyword": "ai"},
     }
-    created = _route_stubs(monkeypatch, drafts=[base])
+    _route_stubs(monkeypatch, drafts=[base])
 
     out = resources.update_form_fields(
         "p1",
@@ -302,6 +302,138 @@ def test_classify_figures_is_inert_without_vision(monkeypatch):
     monkeypatch.setattr(form_ai.settings, "ai_vision_enabled", False)
 
     assert form_ai.classify_figures("p1")["classified"] == 0
+
+
+def test_refine_group_falls_back_to_text_when_vision_refused(monkeypatch):
+    _vision_flags(monkeypatch)
+    calls = {"n": 0}
+
+    monkeypatch.setattr(
+        form_ai,
+        "select_context",
+        lambda patent_id, query, max_chars: (
+            "",
+            [
+                {
+                    "alias": "fig-1",
+                    "id": "g1",
+                    "label": "FIG. 1",
+                    "caption": "Wiper",
+                    "page": 1,
+                    "source": "spec.pdf",
+                }
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        form_ai.extraction_store, "read_figure_image", lambda row: b"\xff\xd8fake"
+    )
+    monkeypatch.setattr(form_ai, "_downscale", lambda image, edge: image)
+
+    def fake_post(messages, max_tokens):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise form_ai._VisionRejected("image content not supported")
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '{"fields": {"exemplary_scenario": "A scenario.", '
+                            '"detailed_exemplary_scenario": "Details.", '
+                            '"best_working_method": "Mount it."}, '
+                            '"used_figures": []}'
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(form_ai, "_post_messages", fake_post)
+
+    result = form_ai.refine_group(
+        "p1",
+        {},
+        "FORM_EMBODIMENTS",
+        raw_values={
+            "exemplary_scenario": "A scenario.",
+            "detailed_exemplary_scenario": "Details.",
+            "best_working_method": "Mount it.",
+        },
+    )
+
+    assert calls["n"] == 2
+    assert result["fields"]["exemplary_scenario"] == "A scenario."
+    assert any("text only" in warning for warning in result["warnings"])
+    assert form_ai._VISION_DISABLED is True
+
+
+def test_select_context_ranks_and_budgets(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.form_ai.query_docs",
+        lambda collection, filters=None: (
+            [{"id": "f1", "original_file_name": "spec.pdf"}]
+            if collection == "files"
+            else []
+        ),
+    )
+    text = (
+        "Unrelated filler paragraph about office supplies and weather.\n\n"
+        "The wiper blade travels along the rail assembly to clean the panel.\n\n"
+        "Another filler paragraph about lunch menus and parking."
+    )
+    monkeypatch.setattr(
+        "app.services.form_ai.query_docs",
+        lambda collection, filters=None: (
+            [{"id": "f1", "original_file_name": "spec.pdf"}]
+            if collection == "files"
+            else []
+        ),
+    )
+    monkeypatch.setattr(
+        form_ai.extraction_store,
+        "query_docs",
+        lambda collection, filters=None: [
+            {
+                "file_id": "f1",
+                "status": extraction_store.READY,
+                "extracted_at": "2026-01-01T00:00:00+00:00",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        form_ai.extraction_store,
+        "read_text",
+        lambda file_id: text.encode("utf-8"),
+    )
+    monkeypatch.setattr(
+        form_ai.extraction_store,
+        "read_text",
+        lambda file_id: text.encode("utf-8"),
+    )
+    monkeypatch.setattr(
+        form_ai.extraction_store,
+        "figures_for_patent",
+        lambda patent_id: [
+            {
+                "id": "fig1",
+                "label": "FIG. 1",
+                "caption": "Wiper",
+                "page": 2,
+                "source": "spec.pdf",
+                "usable": "usable",
+                "include_in_drawings": True,
+                "has_image": True,
+            }
+        ],
+    )
+
+    excerpts, figures = form_ai.select_context("p1", "wiper blade rail panel", 200)
+
+    assert "wiper blade" in excerpts
+    assert "lunch menus" not in excerpts
+    assert len(excerpts) <= 200
+    assert figures[0]["alias"] == "fig-1"
 
 
 def test_classify_route_calls_the_service(monkeypatch):
