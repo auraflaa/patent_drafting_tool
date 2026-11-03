@@ -7,7 +7,7 @@ import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { StatusBadge } from "../components/StatusBadge";
 import { BasicInfoTab, QuestionnaireTab } from "../components/PatentDetailTabs";
-import { apiFetch, LONG_REQUEST_TIMEOUT_MS } from "../lib/api";
+import { apiFetch, getFriendlyError, LONG_REQUEST_TIMEOUT_MS } from "../lib/api";
 import { homePathFor } from "../lib/roles";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -40,7 +40,7 @@ export default function DraftWorkspacePage() {
     try {
       setPatent(await apiFetch<PatentOut>(`/api/patents/${patentId}`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load patent");
+      setError(getFriendlyError("DraftWorkspacePage.catch1", err, "Failed to load patent"));
     }
   }
 
@@ -51,7 +51,7 @@ export default function DraftWorkspacePage() {
       );
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load draft sections",
+        getFriendlyError("DraftWorkspacePage.loadDraft", err, "Failed to load draft sections"),
       );
     }
   }
@@ -76,7 +76,7 @@ export default function DraftWorkspacePage() {
       setVersions({});
       await Promise.all([loadDraft(), loadPatent()]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate draft");
+      setError(getFriendlyError("DraftWorkspacePage.catch2", err, "Failed to generate draft"));
     } finally {
       setGeneratingAll(false);
     }

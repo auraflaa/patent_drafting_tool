@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { apiDownload, apiFetch, apiUpload, getRuntimeCapabilities } from "../lib/api";
+import { apiDownload, apiFetch, apiUpload, getFriendlyError, getRuntimeCapabilities } from "../lib/api";
 import { formatFileSize } from "../lib/format";
 import type { RuntimeCapabilities } from "../lib/api";
 import { LoadingState } from "./LoadingState";
@@ -129,7 +129,7 @@ function CommentsSection({ patentId }: { patentId: string }) {
     try {
       setComments(await apiFetch<CommentOut[]>(`/api/patents/${patentId}/comments`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load comments");
+      setError(getFriendlyError("CollaborationPanel.catch1", err, "Failed to load comments"));
     }
   }
 
@@ -151,7 +151,7 @@ function CommentsSection({ patentId }: { patentId: string }) {
       setText("");
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to post comment");
+      setError(getFriendlyError("CollaborationPanel.catch2", err, "Failed to post comment"));
     } finally {
       setBusy(false);
     }
@@ -228,7 +228,7 @@ function FilesSection({ patentId }: { patentId: string }) {
     try {
       setFiles(await apiFetch<FileOut[]>(`/api/patents/${patentId}/files`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load files");
+      setError(getFriendlyError("CollaborationPanel.catch3", err, "Failed to load files"));
     }
   }
 
@@ -246,7 +246,7 @@ function FilesSection({ patentId }: { patentId: string }) {
       await apiUpload(`/api/patents/${patentId}/files`, file);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to upload file");
+      setError(getFriendlyError("CollaborationPanel.catch4", err, "Failed to upload file"));
     } finally {
       setBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -260,7 +260,7 @@ function FilesSection({ patentId }: { patentId: string }) {
         f.original_file_name ?? `file-${f.id}`
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to download file");
+      setError(getFriendlyError("CollaborationPanel.catch5", err, "Failed to download file"));
     }
   }
 
@@ -272,7 +272,7 @@ function FilesSection({ patentId }: { patentId: string }) {
         `${stem}-extracted.md`
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to download extracted text");
+      setError(getFriendlyError("CollaborationPanel.catch6", err, "Failed to download extracted text"));
     }
   }
 
@@ -283,7 +283,7 @@ function FilesSection({ patentId }: { patentId: string }) {
       await apiFetch(`/api/patents/${patentId}/files/${f.id}`, { method: "DELETE" });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete file");
+      setError(getFriendlyError("CollaborationPanel.catch7", err, "Failed to delete file"));
     } finally {
       setBusy(false);
     }
@@ -384,7 +384,7 @@ function CalendarSection({ patentId, canManage }: { patentId: string; canManage:
     try {
       setEvents(await apiFetch<CalendarEventOut[]>(`/api/patents/${patentId}/calendar-events`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load calendar events");
+      setError(getFriendlyError("CollaborationPanel.catch8", err, "Failed to load calendar events"));
     }
   }
 
@@ -409,7 +409,7 @@ function CalendarSection({ patentId, canManage }: { patentId: string; canManage:
       setForm(EMPTY_EVENT);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create event");
+      setError(getFriendlyError("CollaborationPanel.catch9", err, "Failed to create event"));
     } finally {
       setBusy(false);
     }
@@ -422,7 +422,7 @@ function CalendarSection({ patentId, canManage }: { patentId: string; canManage:
       await apiFetch(`/api/patents/${patentId}/calendar-events/${id}`, { method: "DELETE" });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete event");
+      setError(getFriendlyError("CollaborationPanel.catch10", err, "Failed to delete event"));
     } finally {
       setBusy(false);
     }

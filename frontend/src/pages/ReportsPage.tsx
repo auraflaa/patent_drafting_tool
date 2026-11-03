@@ -156,7 +156,7 @@ function ReportBrowser() {
       setTypes(data);
       if (data.length > 0) setSelected((prev) => prev ?? data[0].report_type);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load report types");
+      setError(getFriendlyError("ReportsPage.catch1", err, "Failed to load report types"));
     }
   }
 
@@ -170,7 +170,7 @@ function ReportBrowser() {
     setError(null);
     apiFetch<ReportOut>(`/api/reports/${selected}`)
       .then(setReport)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load report"));
+      .catch((err) => setError(getFriendlyError("ReportsPage.catch2", err, "Failed to load report")));
   }, [selected]);
 
   async function download() {

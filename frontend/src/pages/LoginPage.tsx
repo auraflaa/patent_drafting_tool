@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { homePathFor } from "../lib/roles";
+import { LoadingState } from "../components/LoadingState";
+import { getFriendlyError } from "../lib/api";
 
 const SIGN_IN_ERROR_MESSAGES: Record<string, string> = {
   "auth/popup-blocked":
@@ -32,6 +34,24 @@ export default function LoginPage() {
     }
   }, [status, user, navigate]);
 
+  // While Firebase restores the session after a redirect sign-in, show a
+  // loading indicator so the user isn't left on a blank page.
+  if (status === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="w-full max-w-md space-y-8">
+          <div className="text-center">
+            <h1 className="text-2xl font-semibold text-slate-900">
+              Patent Filing &amp; Lifecycle Platform
+            </h1>
+            <p className="mt-2 text-sm text-slate-500">Sign in to continue</p>
+          </div>
+          <LoadingState label="Signing in…" />
+        </div>
+      </div>
+    );
+  }
+
   async function handleGoogleSignIn() {
     setError(null);
     setSubmitting(true);
@@ -42,7 +62,7 @@ export default function LoginPage() {
       const code = (err as { code?: string } | null)?.code ?? "";
       const message =
         SIGN_IN_ERROR_MESSAGES[code] ||
-        (err instanceof Error ? err.message : "Google sign-in failed. Please try again.");
+        getFriendlyError("LoginPage.signIn", err, "Google sign-in failed. Please try again.");
       // Keep the raw code visible for codes we do not map, so a support report
       // names the actual failure instead of a generic message.
       setError(code && !SIGN_IN_ERROR_MESSAGES[code] ? `${message} (${code})` : message);

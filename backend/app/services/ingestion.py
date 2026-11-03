@@ -158,7 +158,7 @@ def _extract_pdf(content: bytes) -> Extraction:
         return Extraction(
             status=UNAVAILABLE,
             method="opendataloader",
-            error="PDF extraction is not installed on this server.",
+            error="PDF extraction needs Java 11 or newer on the server. Install Java, or upload a DOCX version of the document.",
         )
     java = settings.java_binary or "java"
     if shutil.which(java) is None:

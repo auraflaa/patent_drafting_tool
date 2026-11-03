@@ -219,7 +219,7 @@ export default function AdminPatentDetailPage() {
           apiFetch<PatentOut>(`/api/patents/${patentId}`)
             .then(setPatent)
             .catch((err) =>
-              setError(err instanceof Error ? err.message : "Failed to reload patent application")
+              setError(getFriendlyError("AdminPatentDetailPage.catch1", err, "Failed to reload patent application"))
             )
         }
       />

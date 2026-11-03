@@ -208,7 +208,7 @@ def pdf_to_docx(content: bytes) -> bytes:
         import fitz  # PyMuPDF, installed with pdf2docx
     except ImportError as exc:
         raise DocumentGenerationError(
-            "PDF import is not available on this server. Upload a DOCX instead."
+            "PDF import could not be read: PyMuPDF is not installed on this server. Upload a DOCX instead."
         ) from exc
     try:
         with fitz.open(stream=content, filetype="pdf") as pdf:

@@ -13,7 +13,7 @@
 // {{ SUMMARY }} {{ DESCRIPTION }} {{ CLAIMS }}
 
 import { useEffect, useRef, useState } from "react";
-import { apiFetch, apiUpload } from "../lib/api";
+import { apiFetch, apiUpload, getFriendlyError } from "../lib/api";
 import { LoadingState } from "./LoadingState";
 import { ErrorState } from "./ErrorState";
 import type { TemplateOut } from "../lib/types";
@@ -34,7 +34,7 @@ export function TemplatesPanel() {
       setDocumentTypes(types);
       if (types.length > 0) setSelectedType((prev) => prev || types[0]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load document types");
+      setError(getFriendlyError("TemplatesPanel.catch1", err, "Failed to load document types"));
     }
   }
 
@@ -46,7 +46,7 @@ export function TemplatesPanel() {
       );
       setTemplates(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load templates");
+      setError(getFriendlyError("TemplatesPanel.catch2", err, "Failed to load templates"));
     }
   }
 
@@ -92,7 +92,7 @@ export function TemplatesPanel() {
       }
       await loadTemplates(selectedType);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      setError(getFriendlyError("TemplatesPanel.catch3", err, "Upload failed"));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -106,7 +106,7 @@ export function TemplatesPanel() {
       await apiFetch(`/api/templates/${id}/activate`, { method: "POST" });
       await loadTemplates(selectedType);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Activate failed");
+      setError(getFriendlyError("TemplatesPanel.catch4", err, "Activate failed"));
     } finally {
       setBusyId(null);
     }
@@ -119,7 +119,7 @@ export function TemplatesPanel() {
       await apiFetch(`/api/templates/${id}`, { method: "DELETE" });
       await loadTemplates(selectedType);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed");
+      setError(getFriendlyError("TemplatesPanel.catch5", err, "Delete failed"));
     } finally {
       setBusyId(null);
     }

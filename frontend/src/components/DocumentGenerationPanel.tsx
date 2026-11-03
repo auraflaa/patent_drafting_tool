@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiDownload, apiFetch, ApiError, LONG_REQUEST_TIMEOUT_MS } from "../lib/api";
+import { apiDownload, apiFetch, ApiError, getFriendlyError, LONG_REQUEST_TIMEOUT_MS } from "../lib/api";
 import type {
   DocumentGenerationJobOut,
   DocumentOut,
@@ -39,7 +39,7 @@ export function DocumentGenerationPanel({
     try {
       setDocuments(await apiFetch<DocumentOut[]>(`/api/patents/${patentId}/documents`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load documents");
+      setError(getFriendlyError("DocumentGenerationPanel.catch1", err, "Failed to load documents"));
     }
   }
 
@@ -47,7 +47,7 @@ export function DocumentGenerationPanel({
     try {
       setJobs(await apiFetch<DocumentGenerationJobOut[]>(`/api/patents/${patentId}/documents/jobs`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load generation jobs");
+      setError(getFriendlyError("DocumentGenerationPanel.catch2", err, "Failed to load generation jobs"));
     }
   }
 
@@ -72,14 +72,14 @@ export function DocumentGenerationPanel({
         }
       );
       if (job.status === "Failed") {
-        setError(`Generation failed: ${job.error_message ?? "unknown error"}`);
+        setError(getFriendlyError("DocumentGenerationPanel.generate", new ApiError(500, job.error_message ?? "Generation failed"), "Generation failed"));
       } else {
         onChanged?.();
         await refreshVersionHistory();
       }
       await Promise.all([loadDocuments(), loadJobs()]);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to generate document");
+      setError(getFriendlyError("DocumentGenerationPanel.generate", err, "Failed to generate document"));
     } finally {
       setGenerating(false);
     }
@@ -94,7 +94,7 @@ export function DocumentGenerationPanel({
         { method: "POST" }
       );
       if (job.status === "Failed") {
-        setError(`Retry failed again: ${job.error_message ?? "unknown error"}`);
+        setError(getFriendlyError("DocumentGenerationPanel.retry", new ApiError(500, job.error_message ?? "Retry failed"), "Retry failed"));
       } else {
         onChanged?.();
         await refreshVersionHistory();
@@ -114,7 +114,7 @@ export function DocumentGenerationPanel({
       );
       setVersions((v) => ({ ...v, [documentId]: data }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load document version history");
+      setError(getFriendlyError("DocumentGenerationPanel.catch3", err, "Failed to load document version history"));
     }
   }
 
@@ -142,7 +142,7 @@ export function DocumentGenerationPanel({
         "document.docx"
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Download failed");
+      setError(getFriendlyError("DocumentGenerationPanel.catch4", err, "Download failed"));
     }
   }
 
@@ -153,7 +153,7 @@ export function DocumentGenerationPanel({
         `document-v${versionNumber}.docx`
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Download failed");
+      setError(getFriendlyError("DocumentGenerationPanel.catch5", err, "Download failed"));
     }
   }
 

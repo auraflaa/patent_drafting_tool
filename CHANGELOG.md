@@ -67,7 +67,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unexpected generation failures store a stable message on the job instead of echoing exception text; curated `DocumentGenerationError` messages still reach the UI.
 - `PendingApprovalPage` stops polling once the session is no longer pending, `ProtectedRoute` uses the shared `LoadingState`, and the generate button stays disabled while a generation is in flight.
 - Sign-in failures show the mapped Firebase hint plus the raw error code when it is unrecognised, and an API session that cannot be described renders an alert instead of silently returning to the login screen.
-- The nginx `/assets/` location repeats the security headers; nginx drops inherited `add_header` directives in a location that declares its own.
+- **User-friendly error handling**: Frontend `getFriendlyError()` maps HTTP status codes to user-friendly messages (401→session expired, 403→no permission, 429→too many requests, etc.) instead of surfacing raw technical details. Frontend `AuthContext` now resets `status` to `"unauthenticated"` when `loadMe()` fails, eliminating the blank-page-on-sign-in bug. All `err instanceof Error ? err.message : "..."` patterns replaced with `getFriendlyError()` calls across 16 frontend files.
+
+- **Backend test fixes**: `ingestion.py` error message updated to include "Java" for `test_missing_java_is_reported_as_unavailable`; `documents.py` error message updated to match `could not be read` regex for `test_pdf_to_docx_rejects_bytes_that_are_not_a_pdf`.
+
+- **Session persistence fix**: `AuthContext` `loadMe()` now always resets `status="unauthenticated"` on failure (previously only when no cached user existed), eliminating the blank-page-after-sign-in issue.
+
+- **Login page loading state**: `LoginPage.tsx` now shows `<LoadingState label="Signing in…" />` during session restore instead of a blank page.
+
+- **The nginx `/assets/` location repeats the security headers; nginx drops inherited `add_header` directives in a location that declares its own.
 - The production CSP blocked Google sign-in because Firebase Auth loads `https://apis.google.com/js/api.js` and renders its auth iframe on `*.firebaseapp.com`; both nginx locations and both Vercel configs now allow those origins.
 - The users report is hidden from the catalog for non-admins, and `run`/`export` reject it before querying Firestore, so a report grant cannot widen account data to Innovators or Patent Agents.
 - Deleting a calendar event now requires `CALENDAR_MANAGE`, matching event creation.

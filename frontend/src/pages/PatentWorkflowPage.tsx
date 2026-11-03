@@ -5,7 +5,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { CollaborationPanel } from "../components/CollaborationPanel";
 import { LoadingState } from "../components/LoadingState";
 import { BasicInfoTab, QuestionnaireTab } from "../components/PatentDetailTabs";
-import { apiFetch } from "../lib/api";
+import { apiFetch, getFriendlyError } from "../lib/api";
 import { type PatentOut } from "../lib/types";
 
 type Tab = "basic-info" | "questionnaire" | "collaboration";
@@ -24,11 +24,7 @@ export default function PatentWorkflowPage() {
       const data = await apiFetch<PatentOut>(`/api/patents/${patentId}`);
       setPatent(data);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to load patent application",
-      );
+      setError(getFriendlyError("PatentWorkflowPage.loadPatent", err, "Failed to load patent application"));
     }
   }
 
@@ -46,7 +42,7 @@ export default function PatentWorkflowPage() {
       await apiFetch(`/api/patents/${patentId}/submit`, { method: "POST" });
       await loadPatent();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to submit");
+      setError(getFriendlyError("PatentWorkflowPage.catch1", err, "Failed to submit"));
     } finally {
       setSubmitBusy(false);
     }

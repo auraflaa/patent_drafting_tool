@@ -5,7 +5,7 @@ import { TemplatesPanel } from "../components/TemplatesPanel";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { EmptyState } from "../components/EmptyState";
-import { apiFetch } from "../lib/api";
+import { apiFetch, getFriendlyError } from "../lib/api";
 import type {
   PendingUserOut,
   RbacMatrixResponse,
@@ -104,7 +104,7 @@ function PendingApprovalsPanel() {
       const data = await apiFetch<PendingUserOut[]>("/api/auth/pending-users");
       setPending(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load pending users");
+      setError(getFriendlyError("SuperAdminDashboard.catch1", err, "Failed to load pending users"));
     }
   }
 
@@ -136,7 +136,7 @@ function PendingApprovalsPanel() {
       });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Approval failed");
+      setError(getFriendlyError("SuperAdminDashboard.catch2", err, "Approval failed"));
     } finally {
       setBusyId(null);
     }
@@ -152,7 +152,7 @@ function PendingApprovalsPanel() {
       });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Rejection failed");
+      setError(getFriendlyError("SuperAdminDashboard.catch3", err, "Rejection failed"));
     } finally {
       setBusyId(null);
     }
@@ -238,7 +238,7 @@ function RbacMatrixPanel() {
       const data = await apiFetch<RbacMatrixResponse>("/api/rbac/matrix");
       setMatrix(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load matrix");
+      setError(getFriendlyError("SuperAdminDashboard.catch4", err, "Failed to load matrix"));
     }
   }
 
@@ -267,7 +267,7 @@ function RbacMatrixPanel() {
       );
       setMatrix(updated);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Toggle failed");
+      setError(getFriendlyError("SuperAdminDashboard.catch5", err, "Toggle failed"));
     } finally {
       setPendingCell(null);
     }
@@ -364,7 +364,7 @@ function ReportPermissionsPanel() {
       );
       setMatrix(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load report permissions");
+      setError(getFriendlyError("SuperAdminDashboard.catch6", err, "Failed to load report permissions"));
     }
   }
 
@@ -393,7 +393,7 @@ function ReportPermissionsPanel() {
       );
       setMatrix(updated);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Toggle failed");
+      setError(getFriendlyError("SuperAdminDashboard.catch7", err, "Toggle failed"));
     } finally {
       setPendingCell(null);
     }
@@ -465,7 +465,7 @@ function AllUsersPanel() {
       const data = await apiFetch<UserAdminOut[]>("/api/rbac/users");
       setUsers(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load users");
+      setError(getFriendlyError("SuperAdminDashboard.catch8", err, "Failed to load users"));
     }
   }
 
@@ -484,7 +484,7 @@ function AllUsersPanel() {
       });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Assign failed");
+      setError(getFriendlyError("SuperAdminDashboard.catch9", err, "Assign failed"));
     } finally {
       setBusyKey(null);
     }
@@ -498,7 +498,7 @@ function AllUsersPanel() {
       await apiFetch(`/api/rbac/users/${userId}/roles/${role}`, { method: "DELETE" });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Revoke failed");
+      setError(getFriendlyError("SuperAdminDashboard.catch10", err, "Revoke failed"));
     } finally {
       setBusyKey(null);
     }
