@@ -120,6 +120,9 @@ def _post_messages(messages: list[dict], max_tokens: int) -> dict:
             continue
         if response.status_code == 400 and _vision_rejected(response):
             raise _VisionRejected(response.text[:200])
+        if response.status_code == 415 and _vision_rejected(response):
+            # A strict provider rejects image content outright; same fallback.
+            raise _VisionRejected(response.text[:200])
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -150,40 +153,58 @@ def _vision_available() -> bool:
     return bool(settings.ai_vision_enabled and not _VISION_DISABLED)
 
 
-def select_context(patent_id: str, query: str, max_chars: int) -> tuple[str, list[dict]]:
+def select_context(
+    patent_id: str, query: str, max_chars: int, _cache: dict | None = None
+) -> tuple[str, list[dict]]:
     """Top-ranked extracted passages plus the usable figure index.
 
     Paragraphs are scored by keyword overlap with the query and returned in
     document order with file and page. Figures listed are usable, included
-    and have an image.
+    and have an image. Pass a per-request `_cache` dict to share the
+    Firestore reads across groups.
     """
     terms = {
         word.lower()
         for word in re.findall(r"[a-zA-Z0-9]+", query)
         if len(word) > 3
     }
-    try:
-        files = {
-            doc["id"]: doc
-            for doc in query_docs("files", filters=[("patent_application_id", "==", patent_id)])
-        }
-        rows = extraction_store.query_docs(
-            "file_extractions", filters=[("patent_application_id", "==", patent_id)]
-        )
-    except Exception:  # noqa: BLE001 - context is supplementary, not required
-        return "", []
-    scored: list[tuple[int, str, str, str]] = []
-    for row in rows:
-        if row.get("status") != extraction_store.READY:
-            continue
-        file_id = row.get("file_id")
-        if not file_id or file_id not in files:
-            continue
+    if _cache is None:
+        _cache = {}
+    if "texts" not in _cache:
         try:
-            text = extraction_store.read_text(file_id).decode("utf-8", errors="replace")
-        except Exception:  # noqa: BLE001 - one bad blob skips one file
-            continue
-        name = files[file_id].get("original_file_name") or file_id
+            files = {
+                doc["id"]: doc
+                for doc in query_docs("files", filters=[("patent_application_id", "==", patent_id)])
+            }
+            rows = extraction_store.query_docs(
+                "file_extractions", filters=[("patent_application_id", "==", patent_id)]
+            )
+        except Exception:  # noqa: BLE001 - context is supplementary, not required
+            return "", []
+        texts: dict[str, tuple[str, str]] = {}
+        for row in rows:
+            if row.get("status") != extraction_store.READY:
+                continue
+            file_id = row.get("file_id")
+            if not file_id or file_id not in files:
+                continue
+            try:
+                text = extraction_store.read_text(file_id).decode("utf-8", errors="replace")
+            except Exception:  # noqa: BLE001 - one bad blob skips one file
+                continue
+            name = files[file_id].get("original_file_name") or file_id
+            texts[file_id] = (name, text)
+        try:
+            figure_rows = extraction_store.figures_for_patent(patent_id)
+        except Exception:  # noqa: BLE001 - figures are supplementary
+            figure_rows = []
+        _cache["texts"] = texts
+        _cache["figure_rows"] = figure_rows
+    else:
+        texts = _cache["texts"]
+        figure_rows = _cache["figure_rows"]
+    scored: list[tuple[int, str, str, str]] = []
+    for file_id, (name, text) in texts.items():
         for paragraph in re.split(r"\n\s*\n", text):
             paragraph = paragraph.strip()
             if len(paragraph) < 40:
@@ -203,10 +224,6 @@ def select_context(patent_id: str, query: str, max_chars: int) -> tuple[str, lis
         if used >= max_chars:
             break
     blocks = [f"[{name}]\n{paragraph}" for name, _, paragraph in picked]
-    try:
-        figure_rows = extraction_store.figures_for_patent(patent_id)
-    except Exception:  # noqa: BLE001 - figures are supplementary
-        figure_rows = []
     figures = []
     for index, row in enumerate(figure_rows, start=1):
         if (
@@ -223,8 +240,7 @@ def select_context(patent_id: str, query: str, max_chars: int) -> tuple[str, lis
                 "label": row.get("label") or alias,
                 "caption": row.get("caption") or "",
                 "page": row.get("page") or 0,
-                "source": files.get(row.get("file_id"), {}).get("original_file_name")
-                or "",
+                "source": texts.get(row.get("file_id"), ("", ""))[0],
             }
         )
     return "\n\n".join(blocks), figures
@@ -410,6 +426,7 @@ def refine_group(
     group: str,
     *,
     raw_values: dict[str, str | None] | None = None,
+    _cache: dict | None = None,
 ) -> dict:
     """Refine one group; returns the stored draft payload (never raises)."""
     keys = AI_GROUPS[group]
@@ -418,7 +435,7 @@ def refine_group(
     query = " ".join(
         str(raw.get(key) or "") for key in keys
     ) + " " + " ".join(keys).replace("_", " ")
-    excerpts, figures = select_context(patent_id, query, budget)
+    excerpts, figures = select_context(patent_id, query, budget, _cache)
     aliases = {figure["alias"] for figure in figures}
 
     material = [f"## {FIELD_BY_KEY[key].label}\n{(raw.get(key) or '').strip() or '(not provided)'}" for key in keys]

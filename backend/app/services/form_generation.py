@@ -336,6 +336,7 @@ def form_status(patent_id: str) -> dict:
                 "generated_at": (document or {}).get("generated_at"),
                 "job_status": (job or {}).get("status"),
                 "job_error": (job or {}).get("error_message"),
+                "job_completed_at": (job or {}).get("completed_at"),
                 "missing_fields": missing_form_fields(code, context),
             }
         )
@@ -356,6 +357,21 @@ def finalize(patent_id: str, user: dict) -> dict:
         raise FinalizeError(
             "Generate all forms before finalizing. Missing: "
             + ", ".join(incomplete)
+            + "."
+        )
+    stale = sorted(
+        {
+            card["form_code"]
+            for card in status["forms"]
+            if card["generated"]
+            and card["job_status"] == "Failed"
+            and (card["job_completed_at"] or "") >= (card["generated_at"] or "")
+        }
+    )
+    if stale:
+        raise FinalizeError(
+            "Re-generate after the latest failure before finalizing: "
+            + ", ".join(stale)
             + "."
         )
     missing = sorted(

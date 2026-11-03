@@ -2311,11 +2311,16 @@ def generate_forms(
                 status.HTTP_400_BAD_REQUEST,
                 "Unknown form code(s): " + ", ".join(unknown) + ".",
             )
-    counts = {
-        key: value
-        for key, value in (payload.get("counts") or {}).items()
-        if isinstance(value, str) and value.strip()
-    }
+    counts: dict[str, str] = {}
+    for key, value in (payload.get("counts") or {}).items():
+        if isinstance(value, str):
+            value = value.strip()
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            value = str(value)
+        else:
+            continue
+        if value:
+            counts[key] = value
     _reap_stale_jobs(patent_id)
     return form_generation.generate_form_set(
         patent_id, user, codes=codes, counts=counts
@@ -2418,6 +2423,7 @@ def refine_form_fields(
     existing = query_docs("drafts", filters=[("patent_application_id", "==", patent_id)])
     created = []
     started = time.monotonic()
+    shared: dict = {}
     for group in groups:
         if created and time.monotonic() - started > form_ai.BATCH_DEADLINE_SECONDS:
             # A degraded provider must not hold the request past the client
@@ -2429,7 +2435,9 @@ def refine_form_fields(
             )
             break
         group_raw = {key: raw.get(key) for key in form_ai.AI_GROUPS[group]}
-        result = form_ai.refine_group(patent_id, profile, group, raw_values=group_raw)
+        result = form_ai.refine_group(
+            patent_id, profile, group, raw_values=group_raw, _cache=shared
+        )
         version_number = 1 + max(
             [
                 int(doc.get("version_number") or 0)

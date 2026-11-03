@@ -173,7 +173,7 @@ def test_refine_route_stores_one_row_per_group(monkeypatch):
     monkeypatch.setattr(
         resources.form_ai,
         "refine_group",
-        lambda patent_id, profile, group, raw_values=None: {
+        lambda patent_id, profile, group, raw_values=None, _cache=None: {
             "fields": {key: None for key in resources.form_ai.AI_GROUPS[group]},
             "origin": {},
             "figure_refs": {},
@@ -311,7 +311,7 @@ def test_refine_group_falls_back_to_text_when_vision_refused(monkeypatch):
     monkeypatch.setattr(
         form_ai,
         "select_context",
-        lambda patent_id, query, max_chars: (
+        lambda patent_id, query, max_chars, _cache=None: (
             "",
             [
                 {

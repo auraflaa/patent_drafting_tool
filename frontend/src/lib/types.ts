@@ -406,6 +406,7 @@ export interface FormCardOut {
   generated_at: string | null;
   job_status: string | null;
   job_error: string | null;
+  job_completed_at: string | null;
   missing_fields: string[];
 }
 

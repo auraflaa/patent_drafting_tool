@@ -235,3 +235,114 @@ def test_finalize_route_maps_gate_errors(monkeypatch):
         resources.finalize_forms("p1", {"uid": "u1"})
     assert exc.value.status_code == 400
     assert "blocked" in str(exc.value.detail)
+
+
+def _route_guards(monkeypatch, status="Under Review"):
+    monkeypatch.setattr(
+        resources,
+        "require_patent",
+        lambda *args: {"id": "p1", "application_status": status},
+    )
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(
+        resources, "_assert_forms_agent", lambda patent, user, action: None
+    )
+    monkeypatch.setattr(resources, "_assert_generation_allowed", lambda patent: None)
+    monkeypatch.setattr(resources, "_reap_stale_jobs", lambda patent_id: None)
+
+
+def test_generate_route_renders_the_set(fakes, monkeypatch):
+    _route_guards(monkeypatch)
+
+    out = resources.generate_forms("p1", {}, {"uid": "u1"})
+
+    assert out["batch_id"]
+    assert len(out["results"]) == 5
+    assert all(row["status"] == "Completed" for row in out["results"])
+
+
+def test_generate_route_rejects_unknown_form_types(monkeypatch):
+    _route_guards(monkeypatch)
+    with pytest.raises(HTTPException) as exc:
+        resources.generate_forms("p1", {"codes": ["FORM9"]}, {"uid": "u1"})
+    assert exc.value.status_code == 400
+
+
+def test_form_download_and_versions_reject_unknown_codes(monkeypatch):
+    _route_guards(monkeypatch)
+    with pytest.raises(HTTPException) as exc:
+        resources.download_form("p1", "FORM9", {"uid": "u1"})
+    assert exc.value.status_code == 404
+    with pytest.raises(HTTPException) as exc:
+        resources.form_versions("p1", "FORM9", {"uid": "u1"})
+    assert exc.value.status_code == 404
+
+
+def test_finalize_blocks_a_newer_failed_job(fakes, monkeypatch):
+    form_generation.generate_form_set("p1", {"uid": "u1"})
+    fakes["jobs"].append(
+        {
+            "id": "job-failed",
+            "patent_application_id": "p1",
+            "form_code": "FORM1",
+            "status": "Failed",
+            "error_message": "boom",
+            "completed_at": "2999-01-01T00:00:00+00:00",
+            "started_at": "2999-01-01T00:00:00+00:00",
+        }
+    )
+
+    with pytest.raises(form_generation.FinalizeError) as exc:
+        form_generation.finalize("p1", {"uid": "u1"})
+    assert "FORM1" in str(exc.value)
+
+
+def test_refine_route_stops_at_the_deadline(monkeypatch):
+    _route_guards(monkeypatch)
+    monkeypatch.setattr(resources.form_ai, "BATCH_DEADLINE_SECONDS", -1)
+    monkeypatch.setattr(
+        resources.form_generation,
+        "build_profile",
+        lambda patent_id, counts=None: {"questionnaire": {}},
+    )
+    monkeypatch.setattr(
+        resources.form_ai,
+        "refine_group",
+        lambda *args, **kwargs: {
+            "fields": {},
+            "origin": {},
+            "figure_refs": {},
+            "used_figures": [],
+            "provider": "stub",
+            "model": "stub",
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        resources, "can_review_draft", lambda patent, user: True
+    )
+    monkeypatch.setattr(
+        resources,
+        "_questionnaire",
+        lambda patent_id: {"id": "q1", "questionnaire_status": "Completed"},
+    )
+    created = []
+    monkeypatch.setattr(
+        resources,
+        "create_doc",
+        lambda c, d, doc_id=None: created.append(
+            {"id": doc_id or f"{c}-{len(created)}", **d}
+        )
+        or {"id": doc_id or f"{c}-{len(created) - 1}", **d},
+    )
+    monkeypatch.setattr(resources, "query_docs", lambda c, filters=None: [])
+    monkeypatch.setattr(resources, "log_activity", lambda *args: None)
+
+    out = resources.refine_form_fields(
+        "p1",
+        {"groups": ["FORM_METADATA", "FORM_BACKGROUND"]},
+        {"uid": "u1"},
+    )
+
+    assert len(out) == 1  # second group never started
+    assert out[0]["group"] == "FORM_METADATA"
