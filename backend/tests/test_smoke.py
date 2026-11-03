@@ -904,7 +904,7 @@ def test_resource_text_fields_are_bounded_and_typed() -> None:
         "keywords": "a, b",
     }
 
-    limit = resources.QUESTIONNAIRE_TEXT_LIMITS["problem_statement"]
+    limit = resources.FIELD_BY_KEY["problem_statement"].limit
     with pytest.raises(HTTPException) as q_exc:
         resources._questionnaire_patch({"problem_statement": "x" * (limit + 1)})
     assert q_exc.value.status_code == 422

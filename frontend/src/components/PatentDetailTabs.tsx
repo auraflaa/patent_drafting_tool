@@ -7,7 +7,7 @@
 // is all a read-only caller needs to do; no new read-only-specific code
 // was written.
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../lib/api";
+import { apiFetch, getFriendlyError } from "../lib/api";
 import { LoadingState } from "./LoadingState";
 import { EmptyState } from "./EmptyState";
 import {
@@ -98,7 +98,7 @@ function ApplicantsPanel({
       setApplicants(data);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load applicants",
+        getFriendlyError("PatentDetailTabs.loadApplicants", err, "Failed to load applicants"),
       );
     }
   }
@@ -148,7 +148,7 @@ function ApplicantsPanel({
       resetForm();
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save applicant");
+      setError(getFriendlyError("PatentDetailTabs.catch1", err, "Failed to save applicant"));
     } finally {
       setBusy(false);
     }
@@ -392,7 +392,7 @@ function InventorsPanel({
       );
       setInventors(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load inventors");
+      setError(getFriendlyError("PatentDetailTabs.catch2", err, "Failed to load inventors"));
     }
   }
 
@@ -439,7 +439,7 @@ function InventorsPanel({
       resetForm();
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save inventor");
+      setError(getFriendlyError("PatentDetailTabs.catch3", err, "Failed to save inventor"));
     } finally {
       setBusy(false);
     }
@@ -639,6 +639,25 @@ const QUESTIONNAIRE_FIELDS: (keyof QuestionnaireUpdateInput)[] = [
   "prior_art",
   "keywords",
   "has_existing_drawings",
+  "invention_keyword",
+  "title_keyword",
+  "problem_keyword",
+  "claim_keyword",
+  "data1",
+  "data2",
+  "field",
+  "domain",
+  "area",
+  "one_line_about_field",
+  "two_lines_about_domain",
+  "three_lines_about_area",
+  "four_lines_about_problem",
+  "four_lines_about_solution",
+  "advantage1",
+  "advantage2",
+  "exemplary_scenario",
+  "detailed_exemplary_scenario",
+  "best_working_method",
 ];
 
 export function QuestionnaireTab({
@@ -677,6 +696,25 @@ export function QuestionnaireTab({
         prior_art: data.prior_art,
         keywords: data.keywords,
         has_existing_drawings: data.has_existing_drawings,
+        invention_keyword: data.invention_keyword,
+        title_keyword: data.title_keyword,
+        problem_keyword: data.problem_keyword,
+        claim_keyword: data.claim_keyword,
+        data1: data.data1,
+        data2: data.data2,
+        field: data.field,
+        domain: data.domain,
+        area: data.area,
+        one_line_about_field: data.one_line_about_field,
+        two_lines_about_domain: data.two_lines_about_domain,
+        three_lines_about_area: data.three_lines_about_area,
+        four_lines_about_problem: data.four_lines_about_problem,
+        four_lines_about_solution: data.four_lines_about_solution,
+        advantage1: data.advantage1,
+        advantage2: data.advantage2,
+        exemplary_scenario: data.exemplary_scenario,
+        detailed_exemplary_scenario: data.detailed_exemplary_scenario,
+        best_working_method: data.best_working_method,
       });
     } catch (err) {
       setError(
@@ -725,7 +763,7 @@ export function QuestionnaireTab({
       setSaveMsg("Saved");
       setTimeout(() => setSaveMsg(null), 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+      setError(getFriendlyError("PatentDetailTabs.catch4", err, "Failed to save"));
     } finally {
       setBusySection(null);
     }
@@ -951,6 +989,223 @@ export function QuestionnaireTab({
           />
           I already have drawings/diagrams for this invention (optional)
         </label>
+      </QSection>
+
+      <QSection
+        title="Invention Identity"
+        editable={editable}
+        busy={busySection === "identity"}
+        onSave={() =>
+          saveSection("identity", [
+            "invention_keyword",
+            "title_keyword",
+            "problem_keyword",
+            "claim_keyword",
+            "data1",
+            "data2",
+          ])
+        }
+      >
+        <QField
+          label="Invention keyword"
+          value={draft.invention_keyword}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, invention_keyword: v })}
+          placeholder="Short noun phrase used in the title, description and claims."
+          rows={1}
+        />
+        <QField
+          label="Title keyword"
+          value={draft.title_keyword}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, title_keyword: v })}
+          placeholder="After “A SYSTEM AND METHOD FOR ENABLING”; uppercase."
+          rows={1}
+        />
+        <QField
+          label="Problem keyword"
+          value={draft.problem_keyword}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, problem_keyword: v })}
+          placeholder="Short noun phrase for the problem."
+          rows={1}
+        />
+        <QField
+          label="Claim subject"
+          value={draft.claim_keyword}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, claim_keyword: v })}
+          placeholder="Short noun phrase the claims are about."
+          rows={1}
+        />
+        <QField
+          label="Claim component 1"
+          value={draft.data1}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, data1: v })}
+          placeholder="First component of the claim subject."
+          rows={1}
+        />
+        <QField
+          label="Claim component 2"
+          value={draft.data2}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, data2: v })}
+          placeholder="Second component of the claim subject."
+          rows={1}
+        />
+      </QSection>
+
+      <QSection
+        title="Technical Field"
+        editable={editable}
+        busy={busySection === "field"}
+        onSave={() => saveSection("field", ["field", "domain", "area"])}
+      >
+        <QField
+          label="Field of invention"
+          value={draft.field}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, field: v })}
+          placeholder="Broad field, e.g. renewable energy."
+          rows={1}
+        />
+        <QField
+          label="Domain"
+          value={draft.domain}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, domain: v })}
+          placeholder="Specific domain, e.g. photovoltaic systems."
+          rows={1}
+        />
+        <QField
+          label="Area"
+          value={draft.area}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, area: v })}
+          placeholder="Narrow area, e.g. panel maintenance."
+          rows={1}
+        />
+      </QSection>
+
+      <QSection
+        title="Background"
+        editable={editable}
+        busy={busySection === "form-background"}
+        onSave={() =>
+          saveSection("form-background", [
+            "one_line_about_field",
+            "two_lines_about_domain",
+            "three_lines_about_area",
+            "four_lines_about_problem",
+          ])
+        }
+      >
+        <QField
+          label="One line about the field"
+          value={draft.one_line_about_field}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, one_line_about_field: v })}
+          placeholder="One sentence on the field."
+        />
+        <QField
+          label="Two lines about the domain"
+          value={draft.two_lines_about_domain}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, two_lines_about_domain: v })}
+          placeholder="Two sentences on the domain."
+        />
+        <QField
+          label="Three lines about the area"
+          value={draft.three_lines_about_area}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, three_lines_about_area: v })}
+          placeholder="Three sentences on the area."
+        />
+        <QField
+          label="Four lines about the problem"
+          value={draft.four_lines_about_problem}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, four_lines_about_problem: v })}
+          placeholder="Four lines describing the problem."
+          rows={4}
+        />
+      </QSection>
+
+      <QSection
+        title="Solution"
+        editable={editable}
+        busy={busySection === "form-solution"}
+        onSave={() =>
+          saveSection("form-solution", [
+            "four_lines_about_solution",
+            "advantage1",
+            "advantage2",
+          ])
+        }
+      >
+        <QField
+          label="Four lines about the solution"
+          value={draft.four_lines_about_solution}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, four_lines_about_solution: v })}
+          placeholder="Four lines describing the solution."
+          rows={4}
+        />
+        <QField
+          label="First object"
+          value={draft.advantage1}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, advantage1: v })}
+          placeholder="Primary object or advantage of the invention."
+        />
+        <QField
+          label="Second object"
+          value={draft.advantage2}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, advantage2: v })}
+          placeholder="Secondary object or advantage of the invention."
+        />
+      </QSection>
+
+      <QSection
+        title="Embodiments"
+        editable={editable}
+        busy={busySection === "form-embodiments"}
+        onSave={() =>
+          saveSection("form-embodiments", [
+            "exemplary_scenario",
+            "detailed_exemplary_scenario",
+            "best_working_method",
+          ])
+        }
+      >
+        <QField
+          label="Exemplary scenario"
+          value={draft.exemplary_scenario}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, exemplary_scenario: v })}
+          placeholder="A concrete example scenario of the invention."
+          rows={4}
+        />
+        <QField
+          label="Detailed exemplary scenario"
+          value={draft.detailed_exemplary_scenario}
+          editable={editable}
+          onChange={(v) =>
+            setDraft({ ...draft, detailed_exemplary_scenario: v })
+          }
+          placeholder="A detailed, step-by-step example."
+          rows={5}
+        />
+        <QField
+          label="Best working method"
+          value={draft.best_working_method}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, best_working_method: v })}
+          placeholder="The preferred way to carry out the invention."
+          rows={4}
+        />
       </QSection>
 
       {saveMsg && <p className="text-xs text-emerald-600">{saveMsg}</p>}

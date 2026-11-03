@@ -17,6 +17,10 @@ from app.core.firebase import (
 from app.core.logging import log_event
 from app.core.security import is_admin
 from app.services.repository import create_doc, get_doc_or_none, list_docs, now_iso
+from app.services.questionnaire_schema import (
+    QUESTIONNAIRE_FIELDS,
+    REQUIRED_QUESTIONNAIRE_FIELDS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -356,69 +360,40 @@ def inventor_out(doc: dict) -> dict:
     }
 
 
-QUESTIONNAIRE_FIELDS = (
-    "invention_type",
-    "problem_statement",
-    "proposed_solution",
-    "novelty_description",
-    "technical_description",
-    "advantages",
-    "prior_art",
-    "keywords",
-    "has_existing_drawings",
-)
-REQUIRED_QUESTIONNAIRE_FIELDS = (
-    "invention_type",
-    "problem_statement",
-    "proposed_solution",
-    "novelty_description",
-    "technical_description",
-)
-
-
 def questionnaire_out(doc: dict) -> dict:
     raw = doc.get("completion_percentage")
     try:
         percentage = f"{float(raw or 0):.2f}"
     except (TypeError, ValueError):
         percentage = "0.00"
-    return {
-        "id": doc["id"],
-        "patent_application_id": doc.get("patent_application_id"),
-        "questionnaire_status": doc.get("questionnaire_status") or "Not Started",
-        "completion_percentage": percentage,
-        "invention_type": doc.get("invention_type"),
-        "problem_statement": doc.get("problem_statement"),
-        "proposed_solution": doc.get("proposed_solution"),
-        "novelty_description": doc.get("novelty_description"),
-        "technical_description": doc.get("technical_description"),
-        "advantages": doc.get("advantages"),
-        "prior_art": doc.get("prior_art"),
-        "keywords": doc.get("keywords"),
-        "has_existing_drawings": doc.get("has_existing_drawings"),
-        "created_at": _iso(doc.get("created_at")),
-        "updated_at": _iso(doc.get("updated_at")),
-    }
+    payload = {key: doc.get(key) for key in QUESTIONNAIRE_FIELDS}
+    payload.update(
+        {
+            "id": doc["id"],
+            "patent_application_id": doc.get("patent_application_id"),
+            "questionnaire_status": doc.get("questionnaire_status") or "Not Started",
+            "completion_percentage": percentage,
+            "created_at": _iso(doc.get("created_at")),
+            "updated_at": _iso(doc.get("updated_at")),
+        }
+    )
+    return payload
 
 
 def questionnaire_version_out(doc: dict) -> dict:
-    return {
-        "id": doc["id"],
-        "questionnaire_id": doc.get("questionnaire_id"),
-        "patent_application_id": doc.get("patent_application_id"),
-        "version_number": int(doc.get("version_number") or 1),
-        "version_status": doc.get("version_status"),
-        "invention_type": doc.get("invention_type"),
-        "problem_statement": doc.get("problem_statement"),
-        "proposed_solution": doc.get("proposed_solution"),
-        "novelty_description": doc.get("novelty_description"),
-        "technical_description": doc.get("technical_description"),
-        "advantages": doc.get("advantages"),
-        "prior_art": doc.get("prior_art"),
-        "keywords": doc.get("keywords"),
-        "change_reason": doc.get("change_reason"),
-        "created_by": doc.get("created_by"),
-    }
+    payload = {key: doc.get(key) for key in QUESTIONNAIRE_FIELDS}
+    payload.update(
+        {
+            "id": doc["id"],
+            "questionnaire_id": doc.get("questionnaire_id"),
+            "patent_application_id": doc.get("patent_application_id"),
+            "version_number": int(doc.get("version_number") or 1),
+            "version_status": doc.get("version_status"),
+            "change_reason": doc.get("change_reason"),
+            "created_by": doc.get("created_by"),
+        }
+    )
+    return payload
 
 
 def questionnaire_completion(doc: dict) -> tuple[str, str]:

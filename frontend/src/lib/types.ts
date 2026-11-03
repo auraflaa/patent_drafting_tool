@@ -236,6 +236,25 @@ export interface QuestionnaireOut {
   prior_art: string | null;
   keywords: string | null;
   has_existing_drawings: boolean | null;
+  invention_keyword: string | null;
+  title_keyword: string | null;
+  problem_keyword: string | null;
+  claim_keyword: string | null;
+  data1: string | null;
+  data2: string | null;
+  field: string | null;
+  domain: string | null;
+  area: string | null;
+  one_line_about_field: string | null;
+  two_lines_about_domain: string | null;
+  three_lines_about_area: string | null;
+  four_lines_about_problem: string | null;
+  four_lines_about_solution: string | null;
+  advantage1: string | null;
+  advantage2: string | null;
+  exemplary_scenario: string | null;
+  detailed_exemplary_scenario: string | null;
+  best_working_method: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -250,6 +269,25 @@ export interface QuestionnaireUpdateInput {
   prior_art?: string | null;
   keywords?: string | null;
   has_existing_drawings?: boolean | null;
+  invention_keyword?: string | null;
+  title_keyword?: string | null;
+  problem_keyword?: string | null;
+  claim_keyword?: string | null;
+  data1?: string | null;
+  data2?: string | null;
+  field?: string | null;
+  domain?: string | null;
+  area?: string | null;
+  one_line_about_field?: string | null;
+  two_lines_about_domain?: string | null;
+  three_lines_about_area?: string | null;
+  four_lines_about_problem?: string | null;
+  four_lines_about_solution?: string | null;
+  advantage1?: string | null;
+  advantage2?: string | null;
+  exemplary_scenario?: string | null;
+  detailed_exemplary_scenario?: string | null;
+  best_working_method?: string | null;
 }
 
 export interface QuestionnaireVersionOut {
@@ -266,6 +304,25 @@ export interface QuestionnaireVersionOut {
   advantages: string | null;
   prior_art: string | null;
   keywords: string | null;
+  invention_keyword: string | null;
+  title_keyword: string | null;
+  problem_keyword: string | null;
+  claim_keyword: string | null;
+  data1: string | null;
+  data2: string | null;
+  field: string | null;
+  domain: string | null;
+  area: string | null;
+  one_line_about_field: string | null;
+  two_lines_about_domain: string | null;
+  three_lines_about_area: string | null;
+  four_lines_about_problem: string | null;
+  four_lines_about_solution: string | null;
+  advantage1: string | null;
+  advantage2: string | null;
+  exemplary_scenario: string | null;
+  detailed_exemplary_scenario: string | null;
+  best_working_method: string | null;
   change_reason: string | null;
   created_by: string | null;
 }

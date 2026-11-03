@@ -42,6 +42,7 @@ from app.services import documents as docgen
 from app.services import drafting
 from app.services import extraction_store
 from app.services import uploads
+from app.services.questionnaire_schema import FIELD_BY_KEY
 from app.services.projections import (
     CALENDAR_EVENT_TYPES,
     PRE_ASSIGNMENT_STATUSES,
@@ -227,16 +228,6 @@ INVENTOR_TEXT_LIMITS = {
     "email": 254,
     "phone": 40,
 }
-QUESTIONNAIRE_TEXT_LIMITS = {
-    "invention_type": 80,
-    "problem_statement": 20_000,
-    "proposed_solution": 20_000,
-    "novelty_description": 20_000,
-    "technical_description": 20_000,
-    "advantages": 20_000,
-    "prior_art": 20_000,
-    "keywords": 2_000,
-}
 MULTILINE_FIELDS = {"address"}
 
 
@@ -292,23 +283,30 @@ def _party_texts(
 
 
 def _questionnaire_patch(payload: dict) -> dict:
+    unknown = sorted(set(payload) - set(QUESTIONNAIRE_FIELDS))
+    if unknown:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Unknown questionnaire field(s): " + ", ".join(unknown) + ".",
+        )
     data: dict = {}
     for field in QUESTIONNAIRE_FIELDS:
         if field not in payload:
             continue
-        if field == "has_existing_drawings":
-            value = payload[field]
+        spec = FIELD_BY_KEY[field]
+        value = payload[field]
+        if spec.kind == "boolean":
             if value is not None and not isinstance(value, bool):
                 raise HTTPException(
                     status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    "has_existing_drawings must be a boolean.",
+                    f"{field} must be a boolean.",
                 )
             data[field] = value
             continue
         data[field] = _bounded_text(
-            payload[field],
+            value,
             field,
-            QUESTIONNAIRE_TEXT_LIMITS[field],
+            spec.limit,
             allow_newlines=True,
         )
     return data
