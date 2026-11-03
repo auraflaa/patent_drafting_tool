@@ -94,6 +94,14 @@ Current controls (Firebase runtime):
   rules deny all client access, so a blob id is not a capability.
 - **Deployment:** one backend replica, auth-endpoint rate limiting, and a
   Firestore backup/retention policy (`DEPLOYMENT.md`).
+- **AI provider data flow:** when `AI_API_URL` is set, refinement and vision
+  calls send questionnaire answers, selected document excerpts, and (only for
+  embodiments, when `AI_VISION_ENABLED`) downscaled figure images to that
+  OpenAI-compatible endpoint. Invention disclosures therefore leave the
+  deployment: point the URL at a provider covered by your confidentiality
+  obligations, tell users before enabling refinement, and keep the stub
+  (all three `AI_*` vars empty) when that is not acceptable. The provider key
+  travels in an `Authorization` header only, never in URLs or logs.
 
 Known limitations (do not rely on these for security):
 

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Statutory form set (ADR-008): FORM1/2/3/5 + Drawings bundled under `backend/app/templates/forms/`, deterministic sandboxed renderer with fail-closed variables, per-form documents/jobs/versions, finalize gate, and a Forms panel with per-form status, missing fields, version history, and filing-style downloads.
+- Questionnaire registry (`questionnaire_schema.py`): 28 fields drive validation, projections, snapshots, and the UI; unknown keys return 422.
+- AI field refinement: three grouped JSON calls with validation + repair + raw fallback, versioned editable review, optional vision input for embodiments, and a vision classification pass over figures.
+- YOLO figure detection (Apache-2.0 DocLayNet weights, pluggable via `YOLO_MODEL_PATH`), deterministic screening, direct image uploads as figures, figure review UI with captions and use-anyway.
+- Figure endpoints (text/figures/image/PATCH) and form endpoints (catalog/refine/form-fields/generate/status/finalize/classify) documented in `docs/API_OVERVIEW.md`; new env vars in `backend/.env.example`.
+
+### Deprecated
+
+- Legacy section-wise AI drafts (`ABSTRACT`…`CLAIMS`) and the single-document generation path remain for existing records but are superseded by refinement + forms. They keep their per-section draft-only warnings; generated forms carry one end-of-document disclosure instead.
+
 - Full open-source documentation set: detailed `README.md`, `CONTRIBUTING.md`, Contributor Covenant `CODE_OF_CONDUCT.md`, `SECURITY.md`, `ACCESSIBILITY.md` (WCAG 2.2 AA target), `SUPPORT.md`, and `docs/` guides (`GETTING_STARTED`, `ARCHITECTURE`, `API_OVERVIEW`, `DEVELOPMENT`, `DOCKER`, `FAQ`, `TROUBLESHOOTING`).
 - GitHub community health files: PR template, bug/feature/docs issue forms, `config.yml`, `CODEOWNERS`, `dependabot.yml`, Discussions-ready links.
 - CI/CD: `ci.yml` (offline backend pytest, frontend build on `ubuntu`/`windows`/`macos`, docs-health), `docker.yml` (backend + frontend image builds + backend `/health` smoke test), `codeql.yml` (CodeQL for Python + JavaScript).

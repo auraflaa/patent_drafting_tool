@@ -108,9 +108,14 @@ export function RefinePanel({ patentId, canRefine }: Props) {
   return (
     <div className="mt-8">
       <h3 className="mb-1 text-sm font-semibold text-slate-700">AI-refined filing values</h3>
-      <p className="mb-3 text-xs text-slate-400">
+      <p className="mb-1 text-xs text-slate-400">
         The AI rephrases the questionnaire into filing-quality values. Review and edit
         them here — saving creates a new version without touching the questionnaire.
+      </p>
+      <p className="mb-3 text-xs text-slate-400">
+        Refinement sends questionnaire answers and selected document excerpts to the
+        configured AI provider; the embodiments group may also send downscaled drawings
+        when vision is enabled.
       </p>
 
       {error && (

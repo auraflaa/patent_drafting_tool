@@ -77,9 +77,9 @@ The REST API deliberately keeps the legacy snake_case contract (`invention_title
 |---|---|
 | Invention intake | Teams, patent records, applicant/inventor parties, structured questionnaire with version snapshots |
 | Agent workflow | Available-agent listing with workload counts, assign / auto-assign / reassign, accept / reject with reasons |
-| Drafting | Section-wise draft generation (`ABSTRACT`, `BACKGROUND`, `SUMMARY`, `DESCRIPTION`, `CLAIMS`), version history; deterministic stub by default, optional OpenAI-compatible provider |
-| Documents | DOCX generation from questionnaire answers, optional `.docx` templates via `docxtpl`, version list, retry, streamed downloads |
-| Files | Patent-scoped uploads stored compressed in Firestore, PDF→DOCX conversion on upload, size/extension validation, streamed downloads, uploader/admin delete |
+| Drafting | AI-refined filing values in three groups (identity, background, embodiments) with strict JSON output, validation + repair, editable review versions; optional vision pass over figures. Legacy section-wise drafts (`ABSTRACT`…`CLAIMS`) remain available but are deprecated |
+| Documents | Statutory form set (FORM1/2/3/5 + Drawings) rendered deterministically from refined values, per-form versions, finalize gate requiring complete fields and a usable drawing. Legacy single-document generation remains available but is deprecated |
+| Files | Patent-scoped uploads stored compressed in Firestore, PDF→DOCX conversion on upload, text/figure extraction with YOLO detection and screening, figure review with captions and vision classification, streamed downloads, uploader/admin delete |
 | Collaboration | Comments, calendar events, notifications (unread count, mark read) |
 | Templates | Admin-managed `.docx` templates per document type, activate/deactivate, unknown-placeholder warnings |
 | Reports & dashboard | Status counts, action-required queue, patent/document/user/calendar reports, CSV export, per-report permission matrix |
