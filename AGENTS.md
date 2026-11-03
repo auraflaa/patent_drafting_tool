@@ -40,3 +40,4 @@ npm run build                  # tsc -b && vite build
 - `ref-repos/` holds ignored reference clones for inspiration — never import from it, never commit it.
 - Single backend instance assumption (ADR-003): document generation and PDF conversion run in-process; no multi-replica changes without a job queue.
 - Generated patent text is draft-only, never legal advice — keep the warning on every stub/AI surface.
+- Seed only foundation accounts (and, when explicitly requested, empty containers). Never seed questionnaires, drafts, generated documents, figures, comments, or other sample content: those are entered manually so the system is exercised with real user actions.

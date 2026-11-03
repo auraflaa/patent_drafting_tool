@@ -156,54 +156,36 @@ a real Firebase project before shipping.
 - Confirm `PATCH`/`DELETE` on another user's resource returns `403`/`404`,
   not silent success.
 
-## 8. Demo data (development only)
+## 8. Foundation data (development only)
 
-`scripts/seed_demo.py` fills an empty-looking database with a realistic data
-set: 5 teams, 10 demo users, and 23 patents spanning the whole lifecycle
-(Draft → Submitted → Under Review → Draft Generated → Ready for Filing →
-Filed → Examination Requested → FER Received → Hearing Scheduled → Granted,
-plus Changes Requested, Rejected, Withdrawn, and Abandoned), questionnaires
-and versions, applicants and inventors, AI draft sections, six real DOCX
-documents with their `blobs`, comments, calendar events, notifications,
-activity, and assignment history.
+`scripts/bootstrap_foundation.py` is the only seeding entry point. It ensures
+the two foundation accounts exist with the correct roles:
 
-The 10 demo users are **data only**: they are `@example.com` profiles that
-cannot sign in (the app is Google-only), but they own patents, sit on teams,
-appear as inventors, and write comments. Every patent has an owner, one or two
-inventors, and a team-specific applicant organisation (Kridhata Energy,
-BioMed, AgriTech, Water, or Aura Health Labs). Four patents are left in
-**Awaiting Patent Agent Acceptance** with `mmanishablr@gmail.com` as the
-assigned agent, so the Patent Agent dashboard always has decisions to make;
-`mmanishablr` is the only seeded Patent Agent, which keeps every pending
-assignment actionable. `rahul.nair@example.com` is a second ADMIN for audit
-views, and `kavya.menon@example.com` is left pending so the approval queue is
-not empty.
+| Email | Role |
+|---|---|
+| `priyangshumukherjee07@gmail.com` | `SUPER_ADMIN` |
+| `mmanishablr@gmail.com` | `INNOVATOR` |
 
-Four teams are shared by both accounts. **Aura Health Labs** is seeded for
-`mmanishablr@gmail.com` only, with eight patents that fill the stages its
-shared view does not cover — so that account has its own portfolio to exercise
-separately from the Super Admin's.
+It creates **no** patents, teams, questionnaires, drafts, documents, figures,
+comments, notifications, or calendar events. Those are entered manually through
+the application so every questionnaire answer, refined field, and draft
+reflects a real user action.
 
 ```powershell
 # From backend/, with the venv active and .env pointing at the project
-python scripts/seed_demo.py --dry-run     # print the plan, write nothing
-python scripts/seed_demo.py               # create the records (idempotent)
-python scripts/seed_demo.py --reset       # delete the seeded records, then reseed
-python scripts/seed_demo.py --reset-only  # delete the seeded records and stop
+python scripts/bootstrap_foundation.py --check   # print the current profiles
+python scripts/bootstrap_foundation.py           # ensure role + approval
 ```
 
 Notes:
 
-- Both accounts must have signed in once so their `users/{uid}` profiles
-  exist. The script stops with a clear message if either is missing.
-- Every document it writes carries `demo_seed = "demo-seed-v1"` and a `demo-…`
-  id; `--reset` deletes exactly those and never touches real records. Re-running
-  the seed skips documents that already exist.
-- The script refuses to run when `ENVIRONMENT=production`.
+- Both accounts must have signed in with Google once so Firebase Auth knows
+  them; the script resolves their UIDs from Auth.
+- It is idempotent and never overwrites a name the user has set.
+- The script refuses to invent content. Use the UI for questionnaires,
+  documents, and figures.
 - It writes to the real Firestore database configured in `.env`, not an
   emulator. Check `FIREBASE_PROJECT_ID` and `FIRESTORE_DATABASE_ID` first.
-- Seeded drafts and documents are labelled as demo content; they are still
-  drafts only and not legal advice.
 
 ## 9. Security notes
 
