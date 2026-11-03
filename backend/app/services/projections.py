@@ -532,6 +532,8 @@ def document_version_out(doc: dict) -> dict:
         "change_summary": doc.get("change_summary"),
         "generated_by": doc.get("generated_by"),
         "generated_at": _iso(doc.get("generated_at")),
+        "figures_embedded": doc.get("figures_embedded") or [],
+        "figures_omitted": doc.get("figures_omitted") or [],
     }
 
 
@@ -539,6 +541,8 @@ def document_job_out(doc: dict) -> dict:
     return {
         "id": doc["id"],
         "patent_application_id": doc.get("patent_application_id"),
+        "form_code": doc.get("form_code"),
+        "batch_id": doc.get("batch_id"),
         "status": doc.get("status") or "Queued",
         "output_format": doc.get("output_format"),
         "triggered_by": doc.get("triggered_by"),

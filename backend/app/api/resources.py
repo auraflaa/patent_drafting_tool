@@ -41,7 +41,9 @@ from app.services import blobs
 from app.services import documents as docgen
 from app.services import drafting
 from app.services import extraction_store
+from app.services import form_generation
 from app.services import uploads
+from app.services.form_specs import BY_CODE as FORM_BY_CODE
 from app.services.questionnaire_schema import FIELD_BY_KEY
 from app.services.projections import (
     CALENDAR_EVENT_TYPES,
@@ -2244,6 +2246,118 @@ def download_document_version(
             f"patent-document-v{version.get('version_number')}.docx"
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Statutory forms
+# ---------------------------------------------------------------------------
+
+
+def _assert_forms_agent(patent: dict, user: dict, action: str) -> None:
+    if not (
+        is_admin(user) or patent.get("assigned_patent_agent_id") == user["uid"]
+    ):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"Only the assigned Patent Agent or an Admin can {action}.",
+        )
+
+
+@router.get("/forms/catalog")
+def forms_catalog(user: dict = Depends(active_user)):
+    from app.services.form_specs import FORMS
+
+    return [
+        {
+            "form_code": spec.code,
+            "label": spec.label,
+            "required": list(spec.required),
+            "optional": list(spec.optional),
+            "supports_figures": spec.supports_figures,
+        }
+        for spec in FORMS
+    ]
+
+
+@router.post("/patents/{patent_id}/forms/generate")
+def generate_forms(
+    patent_id: str, payload: dict, user: dict = Depends(active_user)
+):
+    patent = require_patent(patent_id, user)
+    ensure_permission(user, "DOCUMENTS_GENERATE")
+    _assert_forms_agent(patent, user, "generate forms")
+    _assert_generation_allowed(patent)
+    codes = payload.get("codes")
+    if codes is not None:
+        unknown = [code for code in codes if code not in FORM_BY_CODE]
+        if unknown:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Unknown form code(s): " + ", ".join(unknown) + ".",
+            )
+    counts = {
+        key: value
+        for key, value in (payload.get("counts") or {}).items()
+        if isinstance(value, str) and value.strip()
+    }
+    _reap_stale_jobs(patent_id)
+    return form_generation.generate_form_set(
+        patent_id, user, codes=codes, counts=counts
+    )
+
+
+@router.get("/patents/{patent_id}/forms")
+def list_forms(patent_id: str, user: dict = Depends(active_user)):
+    require_patent(patent_id, user)
+    ensure_permission(user, "DOCUMENTS_VIEW")
+    return form_generation.form_status(patent_id)
+
+
+@router.get("/patents/{patent_id}/forms/{code}/download")
+def download_form(
+    patent_id: str, code: str, user: dict = Depends(active_user)
+):
+    require_patent(patent_id, user)
+    ensure_permission(user, "DOCUMENTS_VIEW")
+    if code not in FORM_BY_CODE:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown form.")
+    document = get_doc_or_none("documents", f"{patent_id}:{code}:DOCX")
+    if document is None or document.get("patent_application_id") != patent_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Form not generated yet.")
+    return _download_response(
+        document.get("stored_path"),
+        docgen.DOCX_MIME,
+        _content_disposition(
+            f"form-{code.lower()}-v{document.get('latest_version') or 1}.docx"
+        ),
+    )
+
+
+@router.get("/patents/{patent_id}/forms/{code}/versions")
+def form_versions(patent_id: str, code: str, user: dict = Depends(active_user)):
+    require_patent(patent_id, user)
+    ensure_permission(user, "DOCUMENTS_VIEW")
+    if code not in FORM_BY_CODE:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown form.")
+    versions = query_docs(
+        "document_versions",
+        filters=[
+            ("patent_application_id", "==", patent_id),
+            ("document_id", "==", f"{patent_id}:{code}:DOCX"),
+        ],
+    )
+    return [document_version_out(doc) for doc in sort_docs(versions, "version_number", reverse=True)]
+
+
+@router.post("/patents/{patent_id}/forms/finalize")
+def finalize_forms(patent_id: str, user: dict = Depends(active_user)):
+    patent = require_patent(patent_id, user)
+    ensure_permission(user, "DOCUMENTS_GENERATE")
+    _assert_forms_agent(patent, user, "finalize forms")
+    try:
+        return form_generation.finalize(patent_id, user)
+    except form_generation.FinalizeError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------

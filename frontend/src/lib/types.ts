@@ -390,6 +390,53 @@ export interface DocumentVersionOut {
   change_summary: string | null;
   generated_by: string | null;
   generated_at: string | null;
+  figures_embedded: string[];
+  figures_omitted: { alias: string | null; reason: string }[];
+}
+
+// ---------------------------------------------------------------------------
+// Statutory forms
+// ---------------------------------------------------------------------------
+
+export interface FormCardOut {
+  form_code: string;
+  label: string;
+  generated: boolean;
+  latest_version: number | null;
+  generated_at: string | null;
+  job_status: string | null;
+  job_error: string | null;
+  missing_fields: string[];
+}
+
+export interface FormsStatusOut {
+  forms: FormCardOut[];
+  usable_figure_count: number;
+  missing_sketch_warning: boolean;
+  finalized_at: string | null;
+  finalized_by: string | null;
+}
+
+export interface FormGenerateResultOut {
+  form_code: string;
+  status: string;
+  job_id: string;
+  figures_embedded: string[];
+  figures_omitted: { alias: string | null; reason: string }[];
+  warnings: string[];
+  error: string | null;
+}
+
+export interface FormsGenerateOut {
+  batch_id: string;
+  results: FormGenerateResultOut[];
+}
+
+export interface FormFinalizeOut {
+  patent_application_id: string;
+  finalized_at: string;
+  finalized_by: string;
+  usable_figure_count: number;
 }
 
 export type DocumentGenerationJobStatus = "Queued" | "Processing" | "Completed" | "Failed";
@@ -397,6 +444,8 @@ export type DocumentGenerationJobStatus = "Queued" | "Processing" | "Completed" 
 export interface DocumentGenerationJobOut {
   id: string;
   patent_application_id: string;
+  form_code: string | null;
+  batch_id: string | null;
   status: DocumentGenerationJobStatus;
   output_format: string | null;
   triggered_by: string;

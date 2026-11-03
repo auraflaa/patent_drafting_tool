@@ -7,6 +7,7 @@ import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { StatusBadge } from "../components/StatusBadge";
 import { BasicInfoTab, QuestionnaireTab } from "../components/PatentDetailTabs";
+import { FormsPanel } from "../components/FormsPanel";
 import { apiFetch, getFriendlyError, LONG_REQUEST_TIMEOUT_MS } from "../lib/api";
 import { homePathFor } from "../lib/roles";
 import { useAuth } from "../context/AuthContext";
@@ -317,6 +318,17 @@ export default function DraftWorkspacePage() {
                 slots.find((s) => s.section_type === section)?.latest
                   ?.processing_status === "Completed",
             )}
+            onChanged={loadPatent}
+          />
+
+          <FormsPanel
+            patentId={patentId}
+            statusAllowsGeneration={
+              patent.application_status === "Under Review" ||
+              patent.application_status === "Draft Generated"
+            }
+            applicationStatus={patent.application_status}
+            inventionTitle={patent.invention_title}
             onChanged={loadPatent}
           />
         </>
