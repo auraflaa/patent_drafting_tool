@@ -168,10 +168,26 @@ FORMS: tuple[FormSpec, ...] = (FORM1, FORM2, FORM3, FORM5, DRAWINGS)
 BY_CODE: dict[str, FormSpec] = {spec.code: spec for spec in FORMS}
 FORM_CODES: tuple[str, ...] = tuple(spec.code for spec in FORMS)
 
+# The only template variables a generate request may supply directly.
+# Everything else comes from the questionnaire, refined fields, parties,
+# agent settings, or derived values — never from caller input. Without this,
+# a counts entry could overwrite e.g. applicant_name in the context.
+COUNT_KEYS = frozenset(
+    {
+        "page_count",
+        "claim_count",
+        "claims_page_count",
+        "abstract_page_count",
+        "drawing_count",
+        "drawing_page_count",
+    }
+)
+
 
 def declared_variables(spec: FormSpec) -> frozenset[str]:
-    """Every variable a form may reference, including the figure block."""
-    variables = set(spec.required) | set(spec.optional)
-    if spec.supports_figures:
-        variables.add("figure_block_present")
-    return frozenset(variables)
+    """Every variable a form may reference.
+
+    The drawings sheet takes figures through the ``[[FIGURE_BLOCK]]`` marker,
+    which is not a Jinja variable and therefore not declared here.
+    """
+    return frozenset(set(spec.required) | set(spec.optional))

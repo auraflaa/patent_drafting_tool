@@ -23,7 +23,7 @@ from pathlib import Path
 import jinja2
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Pt, RGBColor
+from docx.shared import Inches, Pt, RGBColor
 from jinja2.sandbox import SandboxedEnvironment
 
 from app.core.config import settings
@@ -38,6 +38,19 @@ DISCLOSURE_TEXT = "This is for drafting purposes only."
 MAX_INVENTORS = 7
 
 _JINJA_ENV = SandboxedEnvironment(undefined=jinja2.StrictUndefined)
+
+# Bundled templates are immutable at runtime; read each file once per worker
+# instead of on every render of a five-form set.
+_TEMPLATE_CACHE: dict[str, bytes] = {}
+
+
+def _template_bytes(spec: FormSpec) -> bytes:
+    if spec.code not in _TEMPLATE_CACHE:
+        path = (
+            Path(__file__).resolve().parent.parent / "templates" / spec.template
+        )
+        _TEMPLATE_CACHE[spec.code] = path.read_bytes()
+    return _TEMPLATE_CACHE[spec.code]
 
 
 class FormRenderError(RuntimeError):
@@ -114,6 +127,11 @@ def build_context(
         context[key] = agent.get(key.removeprefix("agent_")) or ""
 
     for key, value in (counts or {}).items():
+        # Counts are the only caller-supplied template values, and only from
+        # a fixed allowlist: anything else (e.g. applicant_name) is ignored
+        # rather than overwriting an authoritative source.
+        if key not in form_specs.COUNT_KEYS:
+            continue
         if value not in (None, ""):
             context[key] = str(value)
     context.setdefault("generated_date", generated_date or format_generated_date())
@@ -150,10 +168,7 @@ def render_form(
             f"{spec.label} is missing required value(s): {', '.join(missing)}."
         )
     if template_bytes is None:
-        path = (
-            Path(__file__).resolve().parent.parent / "templates" / spec.template
-        )
-        template_bytes = path.read_bytes()
+        template_bytes = _template_bytes(spec)
 
     from docxtpl import DocxTemplate
 
@@ -232,7 +247,7 @@ def _insert_figure_block(
         last = picture_paragraph._p
         picture_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
         picture_paragraph.add_run().add_picture(
-            io.BytesIO(prepared), width=_docx_inches(5.5)
+            io.BytesIO(prepared), width=Inches(5.5)
         )
         caption_paragraph = _paragraph_after(document, last)
         last = caption_paragraph._p
@@ -254,12 +269,6 @@ def _paragraph_after(document: Document, element):
     paragraph_element = OxmlElement("w:p")
     element.addnext(paragraph_element)
     return Paragraph(paragraph_element, document)
-
-
-def _docx_inches(width: float):
-    from docx.shared import Inches
-
-    return Inches(width)
 
 
 def _fit_image(image: bytes, budget: int) -> bytes | None:

@@ -202,6 +202,30 @@ def test_missing_required_values_fail_closed(context) -> None:
     assert "title_keyword" in str(exc.value)
 
 
+def test_caller_counts_cannot_override_authoritative_values(profile) -> None:
+    questionnaire = dict(profile["questionnaire"])
+    context = forms.build_context(
+        questionnaire=questionnaire,
+        applicant={
+            "full_name_or_org_name": "Example Energy Labs",
+            "country": "India",
+            "address": "1 Test Street",
+        },
+        inventors=[],
+        agent={},
+        counts={
+            "applicant_name": "Evil Override",
+            "title_keyword": "SHOUTING",
+            "page_count": "13",
+            "not_a_variable": "x",
+        },
+    )
+    assert context["applicant_name"] == "Example Energy Labs"
+    assert context["title_keyword"] == "SELF-CLEANING SOLAR ARRAY"
+    assert context["page_count"] == "13"
+    assert "not_a_variable" not in context
+
+
 def test_seven_inventors_render(profile) -> None:
     questionnaire = dict(profile["questionnaire"])
     profile_inventors = [

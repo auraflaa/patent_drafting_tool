@@ -91,11 +91,36 @@ def _selected_figures(patent_id: str) -> list[dict]:
     return selected
 
 
+def _refined_fields(patent_id: str) -> dict:
+    """Latest refined value per field across the three AI groups.
+
+    User edits win automatically: PATCH saves a new version, and the newest
+    version per group is what renders.
+    """
+    from app.services.form_ai import GROUPS
+
+    rows = query_docs("drafts", filters=[("patent_application_id", "==", patent_id)])
+    latest: dict[str, dict] = {}
+    for row in rows:
+        if row.get("section_type") not in GROUPS:
+            continue
+        current = latest.get(row["section_type"])
+        if current is None or int(row.get("version_number") or 0) > int(
+            current.get("version_number") or 0
+        ):
+            latest[row["section_type"]] = row
+    merged: dict = {}
+    for group in GROUPS:
+        merged.update(latest.get(group, {}).get("fields") or {})
+    return merged
+
+
 def build_profile(patent_id: str, counts: dict | None = None) -> dict:
     """Assemble the render profile from Firestore rows and settings."""
     questionnaire = _questionnaire(patent_id)
     return {
         "questionnaire": questionnaire,
+        "refined": _refined_fields(patent_id),
         "applicant": _primary_applicant(patent_id),
         "inventors": _inventors(patent_id),
         "agent": _agent(),
@@ -110,6 +135,7 @@ def profile_context(profile: dict) -> dict:
         applicant=profile["applicant"],
         inventors=profile["inventors"],
         agent=profile["agent"],
+        refined=profile.get("refined") or {},
         counts=profile["counts"],
         generated_date=profile["generated_date"],
     )
@@ -199,9 +225,20 @@ def _render_one(
                 extra={"form": code, "error_type": type(exc).__name__},
                 exc_info=exc,
             )
-        message = str(exc)[:500] if isinstance(exc, forms.FormRenderError) else (
-            "The form could not be generated. Try again or contact support."
-        )
+        if isinstance(exc, forms.FormRenderError):
+            message = str(exc)[:500]
+        elif isinstance(exc, blobs.BlobTooLarge):
+            # Curated and safe to show; reworded for generation (it is not
+            # an upload): the drawings pushed the form over the blob cap.
+            message = (
+                "The generated form does not fit in storage. "
+                "Deselect some drawings or shorten the refined text, "
+                "then generate again."
+            )
+        else:
+            message = (
+                "The form could not be generated. Try again or contact support."
+            )
         job = patch_doc(
             "document_jobs",
             job["id"],

@@ -241,6 +241,7 @@ def select_context(
                 "caption": row.get("caption") or "",
                 "page": row.get("page") or 0,
                 "source": texts.get(row.get("file_id"), ("", ""))[0],
+                "image_blob_id": row.get("image_blob_id"),
             }
         )
     return "\n\n".join(blocks), figures
@@ -364,9 +365,11 @@ def _figure_payloads(
             for figure in figures
         }
     for figure in figures[: settings.ai_vision_max_images]:
+        if not figure.get("image_blob_id"):
+            continue
         try:
             image = extraction_store.read_figure_image(
-                {"image_blob_id": _blob_id_for(figure["id"])}
+                {"image_blob_id": figure["image_blob_id"]}
             )
         except Exception:  # noqa: BLE001 - one bad blob skips one image
             continue
@@ -393,11 +396,6 @@ def _figure_payloads(
             "source": figure["source"],
         }
     return blocks, refs
-
-
-def _blob_id_for(figure_id: str) -> str | None:
-    row = extraction_store.get_figure(figure_id)
-    return (row or {}).get("image_blob_id")
 
 
 def _downscale(image: bytes, edge: int) -> bytes:
@@ -454,6 +452,16 @@ def refine_group(
         group == "FORM_EMBODIMENTS" and _vision_available() and bool(figures)
     )
     image_blocks, refs = _figure_payloads(figures, with_images=with_images)
+    # Validate against figures whose bytes were actually readable: a marker
+    # for a figure that cannot be embedded must fail loudly, not render a
+    # reference to a drawing that is not in the document.
+    aliases = set(refs)
+    # The repair retry is about JSON shape, so it resends text only: the
+    # images are unchanged and would only burn tokens a second time.
+    text_messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_text},
+    ]
     if image_blocks:
         messages.append(
             {
@@ -470,7 +478,7 @@ def refine_group(
     used: list[str] = []
     if not _provider_configured():
         fields = _stub_fields(group, raw)
-        origin = {key: "ai" for key in keys}
+        origin = {key: "fallback" for key in keys}
         return {
             "fields": fields,
             "origin": origin,
@@ -491,14 +499,16 @@ def refine_group(
         _VISION_DISABLED = True
         logger.info("vision_disabled", extra={"reason": str(exc)[:120]})
         warnings.append("The provider refused images; refined from text only.")
-        inner = refine_group(patent_id, profile, group, raw_values=raw)
+        inner = refine_group(
+            patent_id, profile, group, raw_values=raw, _cache=_cache
+        )
         inner["warnings"] = warnings + inner.get("warnings", [])
         return inner
     except RefineError as exc:
         # One repair attempt with the validation error spelled out.
         try:
             repair = _post_messages(
-                messages
+                text_messages
                 + [
                     {
                         "role": "user",
@@ -602,7 +612,8 @@ def classify_figures(patent_id: str) -> dict:
             continue
         for item in judged:
             row = next((row for row in batch if row["id"] == item["id"]), None)
-            if row is None:
+            if row is None or row.get("reviewed_by_user"):
+                # A user decision always wins over vision.
                 continue
             patch: dict = {
                 "vision_description": item["description"],

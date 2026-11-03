@@ -36,6 +36,7 @@ export function FormsPanel({
   const [generatingCode, setGeneratingCode] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notices, setNotices] = useState<string[]>([]);
 
   async function load() {
     try {
@@ -63,6 +64,7 @@ export function FormsPanel({
     if (codes) setGeneratingCode(codes[0]);
     else setGenerating(true);
     setError(null);
+    setNotices([]);
     try {
       const out = await apiFetch<FormsGenerateOut>(
         `/api/patents/${patentId}/forms/generate`,
@@ -79,6 +81,10 @@ export function FormsPanel({
             failed.map((r) => `${r.form_code}: ${r.error ?? "unknown error"}`).join("; "),
         );
       }
+      const notes = out.results.flatMap((r) =>
+        (r.warnings ?? []).map((w) => `${r.form_code}: ${w}`),
+      );
+      if (notes.length > 0) setNotices(notes);
       setVersions({});
       await load();
       onChanged?.();
@@ -160,6 +166,16 @@ export function FormsPanel({
           className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
         >
           {error}
+        </div>
+      )}
+      {notices.length > 0 && (
+        <div
+          role="status"
+          className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700"
+        >
+          {notices.map((n) => (
+            <p key={n}>{n}</p>
+          ))}
         </div>
       )}
 

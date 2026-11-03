@@ -109,7 +109,11 @@ def usable_figure_count(patent_id: str) -> int:
 
 
 def figures_for_patent(patent_id: str) -> list[dict]:
-    """Every figure row for a patent, in drawing-sheet order."""
+    """Every figure row for a patent, in drawing-sheet order.
+
+    The double sort is deliberate: the stable second pass makes
+    display_order primary and page the tiebreaker.
+    """
     rows = query_docs(FIGURES, filters=[("patent_application_id", "==", patent_id)])
     return sort_docs(sort_docs(rows, "page"), "display_order")
 
@@ -246,6 +250,7 @@ def _save_figure(
             "caption_override": None,
             "vision_caption": None,
             "vision_description": None,
+            "reviewed_by_user": False,
             "include_in_drawings": True,
             "display_order": order,
         },

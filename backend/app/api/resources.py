@@ -1682,6 +1682,7 @@ def update_figure(
                 "usable must be 'usable' or 'rejected'.",
             )
         patch["usable"] = usable
+        patch["reviewed_by_user"] = True
         if usable == "usable" and figure.get("usable") == "rejected":
             patch["reason"] = "approved by user"
     if "display_order" in payload:

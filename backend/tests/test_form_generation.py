@@ -346,3 +346,18 @@ def test_refine_route_stops_at_the_deadline(monkeypatch):
 
     assert len(out) == 1  # second group never started
     assert out[0]["group"] == "FORM_METADATA"
+
+
+def test_generate_reports_blob_overflow_clearly(fakes, monkeypatch):
+    from app.services import blobs
+
+    def too_big(data, content_type=None):
+        raise blobs.BlobTooLarge(len(data), len(data))
+
+    monkeypatch.setattr(form_generation.blobs, "put_blob", too_big)
+
+    result = form_generation.generate_form_set("p1", {"uid": "u1"})
+
+    by_code = {row["form_code"]: row for row in result["results"]}
+    assert by_code["FORM1"]["status"] == "Failed"
+    assert "Deselect some drawings" in by_code["FORM1"]["error"]

@@ -446,3 +446,132 @@ def test_classify_route_calls_the_service(monkeypatch):
 
     assert resources.classify_figures("p1", {"uid": "u1"}) == {"classified": 3}
 
+
+def test_repair_retry_sends_text_only(monkeypatch):
+    _vision_flags(monkeypatch)
+    sent = []
+
+    monkeypatch.setattr(
+        form_ai,
+        "select_context",
+        lambda patent_id, query, max_chars, _cache=None: (
+            "",
+            [
+                {
+                    "alias": "fig-1",
+                    "id": "g1",
+                    "label": "FIG. 1",
+                    "caption": "Wiper",
+                    "page": 1,
+                    "source": "spec.pdf",
+                    "image_blob_id": "b1",
+                }
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        form_ai.extraction_store, "read_figure_image", lambda row: b"\xff\xd8fake"
+    )
+    monkeypatch.setattr(form_ai, "_downscale", lambda image, edge: image)
+
+    def fake_post(messages, max_tokens):
+        sent.append(messages)
+        if len(sent) == 1:
+            assert any(
+                isinstance(block, dict) and block.get("type") == "image_url"
+                for message in messages
+                if isinstance(message, dict)
+                for block in (
+                    message["content"]
+                    if isinstance(message.get("content"), list)
+                    else []
+                )
+            ), "first attempt must include the figure image"
+            return {"choices": [{"message": {"content": "not json"}}]}
+        for message in messages:
+            content = message.get("content") if isinstance(message, dict) else None
+            if isinstance(content, list):
+                assert not any(
+                    isinstance(block, dict) and block.get("type") == "image_url"
+                    for block in content
+                ), "repair retry must be text-only"
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '{"fields": {"exemplary_scenario": "A scenario.", '
+                            '"detailed_exemplary_scenario": "Details.", '
+                            '"best_working_method": "Mount it."}, '
+                            '"used_figures": []}'
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(form_ai, "_post_messages", fake_post)
+
+    result = form_ai.refine_group(
+        "p1",
+        {},
+        "FORM_EMBODIMENTS",
+        raw_values={
+            "exemplary_scenario": "A scenario.",
+            "detailed_exemplary_scenario": "Details.",
+            "best_working_method": "Mount it.",
+        },
+    )
+
+    assert len(sent) == 2
+    assert result["fields"]["exemplary_scenario"] == "A scenario."
+
+
+def test_classify_skips_user_reviewed_rows(monkeypatch):
+    _vision_flags(monkeypatch)
+    rows = [
+        {
+            "id": "g1",
+            "usable": "rejected",
+            "reason": "too small",
+            "reviewed_by_user": True,
+            "has_image": True,
+            "image_blob_id": "b1",
+        },
+    ]
+    patched = {}
+    monkeypatch.setattr(
+        form_ai.extraction_store, "figures_for_patent", lambda patent_id: rows
+    )
+    monkeypatch.setattr(
+        form_ai.extraction_store, "read_figure_image", lambda row: b"\xff\xd8fake"
+    )
+    monkeypatch.setattr(form_ai, "_downscale", lambda image, edge: image)
+    monkeypatch.setattr(
+        form_ai,
+        "_post_messages",
+        lambda messages, max_tokens: {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '{"figures": [{"id": "g1", "usable": true, '
+                            '"kind": "sketch", "confidence": 0.99, '
+                            '"caption": "FIG. 1", "description": "A wiper.", '
+                            '"placement": "drawings", "reason": "clear"}]}'
+                        )
+                    }
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.repository.patch_doc",
+        lambda collection, doc_id, data: patched.setdefault(doc_id, data),
+    )
+
+    result = form_ai.classify_figures("p1")
+
+    assert result["classified"] == 0
+    assert patched == {}
+
