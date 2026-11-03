@@ -1,0 +1,73 @@
+{
+  "patent": {
+    "invention_title": "Self-Cleaning Solar Panel Array"
+  },
+  "questionnaire": {
+    "invention_type": "System",
+    "invention_keyword": "self-cleaning solar array",
+    "title_keyword": "SELF-CLEANING SOLAR ARRAY",
+    "problem_keyword": "soiling losses",
+    "claim_keyword": "cleaning mechanism",
+    "data1": "wiper blade",
+    "data2": "rail assembly",
+    "field": "renewable energy",
+    "domain": "photovoltaic systems",
+    "area": "panel maintenance",
+    "one_line_about_field": "Photovoltaic arrays lose output when dust accumulates.",
+    "two_lines_about_domain": "Cleaning is manual and costly. Automated cleaning is rare.",
+    "three_lines_about_area": "Existing washers need water and leave streaks.",
+    "four_lines_about_problem": "Soiling can cut output by 15%. Manual cleaning is unsafe on rooftops.",
+    "four_lines_about_solution": "A wiper travels on a rail and sweeps the panel surface.",
+    "advantage1": "Reduces cleaning labor.",
+    "advantage2": "Recovers lost energy yield.",
+    "problem_statement": "Dust and pollen reduce photovoltaic output and require unsafe manual cleaning.",
+    "proposed_solution": "An automated wiper sweeps the panel on a rail.",
+    "technical_description": "The wiper is driven by a small motor along a rail fixed to the panel frame.",
+    "advantages": "Lower labor, higher yield.",
+    "prior_art": "US 9,000,000: Manual panel washer. Not automated.",
+    "keywords": "solar, cleaning, wiper",
+    "exemplary_scenario": "A rooftop array cleans itself each morning.",
+    "detailed_exemplary_scenario": "A motor drives the wiper along the rail; a controller starts it at dawn.",
+    "best_working_method": "Mount the rail on the long edge and drive the wiper with a 12V motor."
+  },
+  "applicant": {
+    "full_name_or_org_name": "Example Energy Labs",
+    "address": "1 Test Street, Testville",
+    "country": "India"
+  },
+  "inventors": [
+    {
+      "full_name": "Alice Example",
+      "country": "India",
+      "address": "2 Test Street, Testville"
+    },
+    {
+      "full_name": "Bob Example",
+      "country": "India",
+      "address": "3 Test Street, Testville"
+    }
+  ],
+  "figures": [
+    {
+      "alias": "fig-1",
+      "label": "FIG. 1",
+      "caption": "Exploded view of the wiper assembly",
+      "page": 1,
+      "kind": "sketch",
+      "usable": true
+    },
+    {
+      "alias": "fig-2",
+      "label": "FIG. 2",
+      "caption": "Rail and motor layout",
+      "page": 2,
+      "kind": "diagram",
+      "usable": true
+    }
+  ],
+  "config": {
+    "agent_name": "",
+    "agent_inpa": "",
+    "agent_mobile": ""
+  }
+}

@@ -74,6 +74,34 @@ class Settings(BaseSettings):
     # characters so a 200-page filing cannot crowd out the questionnaire.
     max_context_characters: int = Field(default=20_000, ge=1_000)
 
+    # --- Statutory forms ----------------------------------------------------
+    # Agent details printed on every generated form. Blank until appointed;
+    # blank values render as empty signature lines, never sample data.
+    forms_agent_name: str = ''
+    forms_agent_inpa: str = ''
+    forms_agent_mobile: str = ''
+    forms_agent_address: str = ''
+    forms_agent_telephone: str = ''
+    forms_agent_fax: str = ''
+    forms_agent_email: str = ''
+    # Total image bytes embedded in one generated form. Figures beyond the
+    # budget are omitted and recorded, never allowed to blow the blob cap.
+    forms_image_budget_bytes: int = Field(default=600_000, ge=50_000)
+    # Candidates smaller than this are rejected as too small to be drawings.
+    min_figure_edge_px: int = Field(default=300, ge=32)
+    # Optional vision pass over figure candidates (multimodal provider).
+    ai_vision_enabled: bool = False
+    ai_vision_max_images: int = Field(default=3, ge=1, le=12)
+    ai_vision_max_edge_px: int = Field(default=512, ge=128, le=1024)
+    # Optional YOLO figure detector over rendered PDF pages (pluggable ONNX;
+    # weights are never committed). Empty means detection stays off and the
+    # pipeline uses embedded images and direct uploads only. `yolo_provider`
+    # is `cpu` or `cuda`.
+    yolo_model_path: str = ''
+    yolo_provider: str = 'cpu'
+    yolo_confidence: float = Field(default=0.35, ge=0.0, le=1.0)
+    yolo_classes: str = ''
+
     @property
     def allowed_extensions(self) -> tuple[str, ...]:
         return tuple(
