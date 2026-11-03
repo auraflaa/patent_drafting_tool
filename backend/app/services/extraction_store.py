@@ -27,7 +27,6 @@ from app.services.repository import (
     now_iso,
     query_docs,
     sort_docs,
-    write_doc,
 )
 
 logger = logging.getLogger(__name__)
@@ -267,23 +266,6 @@ def delete_for_file(file_id: str) -> None:
                 extra={"event": "extraction_delete_failed", "file_id": file_id},
                 exc_info=exc,
             )
-
-
-def mark_status(file_id: str, status: str, error: str = "") -> None:
-    """Record a failure without inventing an extraction row's contents."""
-    write_doc(
-        EXTRACTIONS,
-        file_id,
-        {
-            "file_id": file_id,
-            "status": status,
-            "error": error,
-            "has_text": False,
-            "text_truncated": False,
-            "figure_count": 0,
-            "extracted_at": now_iso(),
-        },
-    )
 
 
 def load_context(patent_id: str, max_characters: int) -> str:
