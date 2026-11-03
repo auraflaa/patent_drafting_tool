@@ -248,7 +248,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       // An outage must not look like a sign-out: a wedged backend used to clear
       // the session here, so a long-running server "logged users out". Keep the
-      // cached profile and let the next request retry.
+      // cached profile and let the next request retry; only an account with no
+      // cached profile falls back to the login screen.
       setSessionError("The API could not load your account. Try again shortly.");
       if (!userRef.current) setStatus("unauthenticated");
     }
