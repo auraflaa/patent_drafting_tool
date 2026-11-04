@@ -16,6 +16,55 @@ from docx import Document
 from app.services import form_specs, forms
 
 FIXTURE = Path(__file__).parent / "fixtures" / "form_profile.json"
+TEMPLATES = Path(forms.__file__).resolve().parent.parent / "templates"
+
+
+def _form2_numbering():
+    xml = zipfile.ZipFile(TEMPLATES / "forms" / "FORM2.docx").read(
+        "word/numbering.xml"
+    ).decode("utf-8")
+    return xml
+
+
+def test_form2_numbering_gives_bracket_numbers_room():
+    """The [0001]-style number must fit its slot or it overprints the text."""
+    xml = _form2_numbering()
+    checked = 0
+    for m in re.finditer(
+        r"<w:abstractNum w:abstractNumId=\"\d+\">.*?</w:abstractNum>",
+        xml,
+        re.DOTALL,
+    ):
+        lvl = re.search(r"<w:lvl w:ilvl=\"0\"[^>]*>.*?</w:lvl>", m.group(0), re.DOTALL)
+        text = re.search(r"<w:lvlText w:val=\"([^\"]*)\"", lvl.group(0))
+        indent = re.search(r"<w:ind w:left=\"(\d+)\" w:hanging=\"(\d+)\"/>", lvl.group(0))
+        if text and text.group(1).startswith("["):
+            left, hanging = int(indent.group(1)), int(indent.group(2))
+            # "[0001]" at 12pt bold is ~630 twips; the slot must clear it.
+            assert hanging >= 700, f"number slot too narrow: {indent.group(0)}"
+            assert left >= hanging + 180
+            checked += 1
+    assert checked >= 3, "expected the three [000%1]/[00%1] levels"
+
+
+def test_form2_has_no_literal_figure_numbers():
+    """Auto-numbering owns the [000N] prefixes; literals would double up."""
+    doc = Document(TEMPLATES / "forms" / "FORM2.docx")
+    doubles = [
+        paragraph.text.strip()[:40]
+        for paragraph in doc.paragraphs
+        if re.match(r"\[000\d+\]", paragraph.text.strip())
+    ]
+    assert doubles == []
+
+
+def test_form2_has_no_stray_punctuation_paragraphs():
+    """No paragraph may start with a stray period or be a bare figure label."""
+    doc = Document(TEMPLATES / "forms" / "FORM2.docx")
+    for paragraph in doc.paragraphs:
+        text = paragraph.text.strip()
+        assert not text.startswith(". "), f"leading period: {text[:60]!r}"
+        assert not re.match(r"^FIG\. \d+$", text), f"dangling figure line: {text!r}"
 
 
 @pytest.fixture(scope="module")
