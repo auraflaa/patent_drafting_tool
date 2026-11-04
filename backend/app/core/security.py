@@ -148,6 +148,26 @@ def is_super_admin(user: dict) -> bool:
     return "SUPER_ADMIN" in set(user.get("role_codes") or [])
 
 
+def ensure_super_admin_survives(users: list[dict], demoted_uid: str) -> None:
+    """Refuse a role change that would leave zero Super Admin accounts.
+
+    Callers pass the current user list and the uid losing the role; raises
+    400 when no other Super Admin would remain, so one compromised or
+    mistaken admin cannot lock every administrator out.
+    """
+    others = [
+        doc
+        for doc in users
+        if doc.get("id") != demoted_uid
+        and "SUPER_ADMIN" in set(doc.get("role_codes") or [])
+    ]
+    if not others:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "There must always be at least one Super Admin account.",
+        )
+
+
 def permissions_for(user: dict) -> list[str]:
     """Effective permission codes, cached on the per-request profile."""
     cached = user.get("_permissions")

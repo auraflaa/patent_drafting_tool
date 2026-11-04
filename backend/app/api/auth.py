@@ -12,6 +12,7 @@ from app.core.security import (
     active_user,
     current_user,
     ensure_permission,
+    ensure_super_admin_survives,
     is_super_admin,
     permissions_for,
 )
@@ -173,6 +174,14 @@ def approve_user(
             "Only a Super Admin can grant the Super Admin role.",
         )
     target = get_doc("users", user_id)
+    if "SUPER_ADMIN" in set(target.get("role_codes") or []):
+        if not is_super_admin(user):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Only a Super Admin can change the roles of a Super Admin account.",
+            )
+        if "SUPER_ADMIN" not in role_codes:
+            ensure_super_admin_survives(list_docs("users"), user_id)
     write_doc(
         "users",
         user_id,

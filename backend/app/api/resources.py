@@ -35,6 +35,7 @@ from app.core.logging import log_event
 from app.core.security import (
     active_user,
     ensure_permission,
+    ensure_super_admin_survives,
     has_permission,
     is_admin,
     is_super_admin,
@@ -3123,6 +3124,8 @@ def revoke_role(target_id: str, role_code: str, user: dict = Depends(active_user
         )
     if role_code not in roles:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "The user does not hold that role.")
+    if role_code == "SUPER_ADMIN":
+        ensure_super_admin_survives(list_docs("users"), target_id)
     roles.discard(role_code)
     if not roles:
         raise HTTPException(

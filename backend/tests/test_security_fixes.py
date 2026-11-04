@@ -151,6 +151,133 @@ def test_activate_template_refuses_unknown_placeholders(
 # --- Control characters in AI output ----------------------------------------
 
 
+def test_approve_user_cannot_demote_a_super_admin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Abuse case: an Admin with USERS_APPROVE strips a Super Admin via approve."""
+    from app.api import auth
+
+    writes: list = []
+    monkeypatch.setattr(auth, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(
+        auth,
+        "get_doc",
+        lambda *args: {
+            "id": "sa1",
+            "email": "sa@example.com",
+            "full_name": "SA One",
+            "account_status": "approved",
+            "role_codes": ["SUPER_ADMIN"],
+        },
+    )
+    monkeypatch.setattr(
+        auth, "write_doc", lambda *args, **kwargs: writes.append(args)
+    )
+    monkeypatch.setattr(auth, "log_activity", lambda *args: None)
+
+    with pytest.raises(HTTPException) as exc:
+        auth.approve_user(
+            "sa1",
+            {"role_codes": ["INNOVATOR"]},
+            {"uid": "admin", "role_codes": ["ADMIN"]},
+        )
+    assert exc.value.status_code == 403
+    assert writes == []
+
+
+def test_approve_user_super_admin_may_change_super_admin_roles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import auth
+
+    monkeypatch.setattr(auth, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(
+        auth,
+        "get_doc",
+        lambda *args: {
+            "id": "sa1",
+            "email": "sa@example.com",
+            "full_name": "SA One",
+            "account_status": "approved",
+            "role_codes": ["SUPER_ADMIN"],
+        },
+    )
+    monkeypatch.setattr(auth, "write_doc", lambda *args, **kwargs: None)
+    monkeypatch.setattr(auth, "log_activity", lambda *args: None)
+    monkeypatch.setattr(
+        auth,
+        "list_docs",
+        lambda *args, **kwargs: [
+            {"id": "sa1", "role_codes": ["SUPER_ADMIN"]},
+            {"id": "root", "role_codes": ["SUPER_ADMIN"]},
+        ],
+    )
+
+    auth.approve_user(
+        "sa1",
+        {"role_codes": ["INNOVATOR"]},
+        {"uid": "root", "role_codes": ["SUPER_ADMIN"]},
+    )
+
+
+def test_revoke_last_super_admin_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Abuse case: demoting the only remaining Super Admin locks everyone out."""
+    from app.api import resources
+
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(
+        resources,
+        "get_doc",
+        lambda *args: {"id": "sa1", "role_codes": ["SUPER_ADMIN"]},
+    )
+    monkeypatch.setattr(
+        resources,
+        "list_docs",
+        lambda *args, **kwargs: [{"id": "sa1", "role_codes": ["SUPER_ADMIN"]}],
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        resources.revoke_role(
+            "sa1", "SUPER_ADMIN", {"uid": "root", "role_codes": ["SUPER_ADMIN"]}
+        )
+    assert exc.value.status_code == 400
+
+
+def test_revoke_super_admin_allowed_when_another_remains(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import resources
+
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(
+        resources,
+        "get_doc",
+        lambda *args: {
+            "id": "sa1",
+            "email": "sa@example.com",
+            "full_name": "SA One",
+            "account_status": "approved",
+            "role_codes": ["INNOVATOR", "SUPER_ADMIN"],
+        },
+    )
+    monkeypatch.setattr(
+        resources,
+        "list_docs",
+        lambda *args, **kwargs: [
+            {"id": "sa1", "role_codes": ["SUPER_ADMIN"]},
+            {"id": "sa2", "role_codes": ["SUPER_ADMIN"]},
+        ],
+    )
+    monkeypatch.setattr(resources, "patch_doc", lambda *args, **kwargs: None)
+    monkeypatch.setattr(resources, "log_activity", lambda *args: None)
+
+    resources.revoke_role(
+        "sa1", "SUPER_ADMIN", {"uid": "root", "role_codes": ["SUPER_ADMIN"]}
+    )
+
+
 def test_generate_section_rejects_control_characters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
