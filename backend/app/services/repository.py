@@ -196,11 +196,20 @@ def create_doc(collection: str, data: dict, doc_id: str | None = None) -> dict:
 
 
 def patch_doc(collection: str, doc_id: str, data: dict) -> dict:
-    ref = db().collection(collection).document(str(doc_id))
-    if not ref.get(**READ_KWARGS).exists:
+    # The existence probe goes through the guarded read so a half-dead
+    # channel surfaces as a retryable 503 (and recycles the client) instead
+    # of leaking a raw transport error. The ref is rebuilt inside the
+    # operation so a retry uses the fresh client (see firestore_read).
+    snapshot = firestore_read(
+        lambda: db().collection(collection).document(str(doc_id)).get(
+            **READ_KWARGS
+        )
+    )
+    if not snapshot.exists:
         raise HTTPException(404, f'{collection.rstrip("s").capitalize()} not found.')
     payload = clean(data)
     payload["updated_at"] = now_iso()
+    ref = db().collection(collection).document(str(doc_id))
     firestore_write(
         lambda: ref.set(
             payload,
@@ -218,11 +227,16 @@ def delete_doc(
     *,
     not_found: str | None = None,
 ) -> None:
-    ref = db().collection(collection).document(str(doc_id))
-    if not ref.get(**READ_KWARGS).exists:
+    snapshot = firestore_read(
+        lambda: db().collection(collection).document(str(doc_id)).get(
+            **READ_KWARGS
+        )
+    )
+    if not snapshot.exists:
         raise HTTPException(
             404, not_found or f'{collection.rstrip("s").capitalize()} not found.'
         )
+    ref = db().collection(collection).document(str(doc_id))
     firestore_write(
         lambda: ref.delete(
             retry=FIRESTORE_RETRY,

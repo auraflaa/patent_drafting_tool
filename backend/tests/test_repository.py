@@ -1,6 +1,31 @@
 """Tests for the Firestore repository helpers (sorting, querying)."""
 
+import pytest
+from google.api_core import exceptions as api_errors
+
+from app.core.firebase import FirestoreUnavailable
+from app.services import repository
 from app.services.repository import sort_docs
+
+
+def _broken_db(*args, **kwargs):
+    raise api_errors.ServiceUnavailable("transport is down")
+
+
+def test_patch_doc_maps_transport_loss_to_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(repository, "db", _broken_db)
+    with pytest.raises(FirestoreUnavailable):
+        repository.patch_doc("patents", "p1", {"title": "x"})
+
+
+def test_delete_doc_maps_transport_loss_to_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(repository, "db", _broken_db)
+    with pytest.raises(FirestoreUnavailable):
+        repository.delete_doc("patents", "p1")
 
 
 def test_sort_docs_handles_mixed_types_without_raising():
