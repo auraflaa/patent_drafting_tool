@@ -337,6 +337,7 @@ def test_refine_route_stops_at_the_deadline(monkeypatch):
     )
     monkeypatch.setattr(resources, "query_docs", lambda c, filters=None: [])
     monkeypatch.setattr(resources, "log_activity", lambda *args: None)
+    monkeypatch.setattr(resources, "allocate_counter", lambda *a, **k: 1)
 
     out = resources.refine_form_fields(
         "p1",

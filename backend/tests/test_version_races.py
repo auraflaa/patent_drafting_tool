@@ -93,6 +93,79 @@ def test_concurrent_submits_mint_distinct_versions(
     assert len({snap["version_number"] for snap in snapshots}) == 2
 
 
+def test_concurrent_refines_mint_distinct_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refine path had the same read-max-then-write race as submit/draft."""
+    from app.api import resources
+    from app.services import form_ai
+
+    created: list = []
+    lock = threading.Lock()
+    monkeypatch.setattr(resources, "allocate_counter", _FakeCounters())
+    monkeypatch.setattr(
+        resources,
+        "require_patent",
+        lambda *a, **k: {
+            "id": "p1",
+            "application_status": "Under Review",
+            "created_by": "u1",
+        },
+    )
+    monkeypatch.setattr(resources, "can_review_draft", lambda *a: True)
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(
+        resources, "_questionnaire", lambda *a, **k: _full_questionnaire()
+    )
+    monkeypatch.setattr(
+        resources.form_generation,
+        "build_profile",
+        lambda *a, **k: {"questionnaire": _full_questionnaire()},
+    )
+    monkeypatch.setattr(
+        resources, "query_docs", lambda *a, **k: []
+    )
+    monkeypatch.setattr(
+        form_ai, "query_docs", lambda collection, filters=None: []
+    )
+    monkeypatch.setattr(
+        form_ai.extraction_store, "query_docs", lambda *a, **k: []
+    )
+    monkeypatch.setattr(
+        form_ai.extraction_store, "figures_for_patent", lambda *a, **k: []
+    )
+
+    def _create(collection, data, **kwargs):
+        with lock:
+            created.append(dict(data))
+        return {"id": f"r-{data['version_number']}", **data}
+
+    monkeypatch.setattr(resources, "create_doc", _create)
+    monkeypatch.setattr(resources, "refined_group_out", lambda doc: dict(doc))
+    monkeypatch.setattr(resources, "log_activity", lambda *a: None)
+
+    user = {"uid": "agent1", "role_codes": ["PATENT_AGENT"]}
+    errors: list = []
+
+    def _refine():
+        try:
+            resources.refine_form_fields(
+                "p1", {"groups": ["FORM_METADATA"]}, user
+            )
+        except Exception as exc:  # noqa: BLE001 - collected, then re-raised
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_refine) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors
+    assert len(created) == 2
+    assert len({doc["version_number"] for doc in created}) == 2
+
+
 def test_concurrent_draft_generations_mint_distinct_versions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

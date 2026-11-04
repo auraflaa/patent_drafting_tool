@@ -214,15 +214,23 @@ def _extract_pdf(content: bytes) -> Extraction:
                 )
         elements = list(_walk_elements(data))
         figures = _pdf_figures(elements, output)
+        detection_note = ""
         if settings.yolo_model_path:
             # Vector drawings have no embedded images; the detector finds
             # them on the rendered page. Duplicates of OpenDataLoader boxes
             # are dropped by IoU.
             from app.services import figure_detection
 
-            figures = figure_detection.merge_detections(
-                figures, figure_detection.detect_pdf_figures(content)
-            )
+            holder: dict = {}
+            detected = figure_detection.detect_pdf_figures(content, error_out=holder)
+            if holder.get("error"):
+                # The extraction itself succeeded, so this rides along as a
+                # note (surfaced in the file badge tooltip), not a failure:
+                # "no figures" and "detector broken" look identical otherwise.
+                detection_note = (
+                    f"Figure detection unavailable: {holder['error']}"
+                )
+            figures = figure_detection.merge_detections(figures, detected)
         page_count = int(data.get("number of pages") or 0)
         if not page_count:
             page_count = max((figure.page for figure in figures), default=0)
@@ -233,6 +241,7 @@ def _extract_pdf(content: bytes) -> Extraction:
             layout={"elements": _trim_elements(elements)},
             figures=figures,
             page_count=page_count,
+            error=detection_note,
         )
 
 

@@ -2489,13 +2489,19 @@ def refine_form_fields(
         result = form_ai.refine_group(
             patent_id, profile, group, raw_values=group_raw, _cache=shared
         )
-        version_number = 1 + max(
-            [
-                int(doc.get("version_number") or 0)
-                for doc in existing
-                if doc.get("section_type") == group
-            ]
-            or [0]
+        # Same race as questionnaire submit and draft generation: claim the
+        # version transactionally instead of read-max-then-write.
+        version_number = allocate_counter(
+            "draft_counters",
+            f"{patent_id}:{group}",
+            floor=max(
+                [
+                    int(doc.get("version_number") or 0)
+                    for doc in existing
+                    if doc.get("section_type") == group
+                ]
+                or [0]
+            ),
         )
         record = create_doc(
             "drafts",
@@ -2600,8 +2606,14 @@ def update_form_fields(
     for key, value in cleaned.items():
         merged[key] = value
         origin[key] = "user"
-    version_number = 1 + max(
-        [int(doc.get("version_number") or 0) for doc in group_rows] or [0]
+    # Same transactional claim as the refine route: two agents saving edits
+    # at once must not fork the version history.
+    version_number = allocate_counter(
+        "draft_counters",
+        f"{patent_id}:{group}",
+        floor=max(
+            [int(doc.get("version_number") or 0) for doc in group_rows] or [0]
+        ),
     )
     record = create_doc(
         "drafts",

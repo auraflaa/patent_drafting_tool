@@ -15,6 +15,7 @@ returns [] and the pipeline uses embedded images and direct uploads only.
 from __future__ import annotations
 
 import logging
+import threading
 
 from app.core.config import settings
 from app.services.ingestion import Figure, _prepare_image
@@ -23,26 +24,31 @@ logger = logging.getLogger(__name__)
 
 _SESSION = None
 _SESSION_PATH = ""
+# First detection wins the build: two uploads racing an empty cache must not
+# construct (and leak) two sessions, and a path change mid-flight must not
+# interleave with a read of the cached one.
+_SESSION_LOCK = threading.Lock()
 
 
 def _session():
     global _SESSION, _SESSION_PATH
     path = settings.yolo_model_path
-    if _SESSION is not None and _SESSION_PATH == path:
-        return _SESSION
-    import onnxruntime as ort
+    with _SESSION_LOCK:
+        if _SESSION is not None and _SESSION_PATH == path:
+            return _SESSION
+        import onnxruntime as ort
 
-    providers = ["CPUExecutionProvider"]
-    if settings.yolo_provider == "cuda":
-        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-    try:
-        session = ort.InferenceSession(path, providers=providers)
-    except Exception:
-        # CUDA unavailable or misconfigured: CPU always works.
-        session = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
-    _SESSION = session
-    _SESSION_PATH = path
-    return session
+        providers = ["CPUExecutionProvider"]
+        if settings.yolo_provider == "cuda":
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        try:
+            session = ort.InferenceSession(path, providers=providers)
+        except Exception:
+            # CUDA unavailable or misconfigured: CPU always works.
+            session = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
+        _SESSION = session
+        _SESSION_PATH = path
+        return session
 
 
 def _class_names() -> list[str]:
@@ -82,8 +88,15 @@ def _letterbox(image, size: int):
     return tensor[None, ...], scale, left, top
 
 
-def detect_pdf_figures(pdf_bytes: bytes) -> list[Figure]:
-    """Find figure/table regions on rendered PDF pages. Never raises."""
+def detect_pdf_figures(
+    pdf_bytes: bytes, *, error_out: dict | None = None
+) -> list[Figure]:
+    """Find figure/table regions on rendered PDF pages. Never raises.
+
+    ``error_out``, when given, receives ``{"error": ...}`` if detection was
+    attempted but failed, so callers can tell "no figures on these pages"
+    apart from "the detector is broken".
+    """
     if not settings.yolo_model_path:
         return []
     try:
@@ -94,6 +107,8 @@ def detect_pdf_figures(pdf_bytes: bytes) -> list[Figure]:
             extra={"event": "yolo_detection_failed", "error_type": type(exc).__name__},
             exc_info=exc,
         )
+        if error_out is not None:
+            error_out["error"] = f"{type(exc).__name__}: {exc}"[:300]
         return []
 
 

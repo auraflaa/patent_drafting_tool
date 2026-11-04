@@ -215,3 +215,31 @@ def test_docx_caption_does_not_leak_to_later_images():
     assert len(images) == 2
     assert "FIG. 1" in images[0].caption
     assert images[1].caption == ""
+
+
+def test_pdf_extraction_reports_broken_figure_detection(monkeypatch, tmp_path):
+    """'No figures' must be distinguishable from 'the detector is broken'."""
+    _pdf_fixture(
+        monkeypatch,
+        tmp_path,
+        [
+            {
+                "type": "heading",
+                "page number": 1,
+                "bounding box": [72.0, 689.5, 102.6, 702.2],
+                "content": "FIG. 1",
+            },
+        ],
+    )
+    monkeypatch.setattr(ingestion.settings, "yolo_model_path", "dummy.onnx")
+
+    def explode():
+        raise RuntimeError("weights are corrupt")
+
+    monkeypatch.setattr("app.services.figure_detection._session", explode)
+
+    result = ingestion.extract("filing.pdf", b"%PDF-1.4 stub")
+
+    assert result.status == ingestion.READY
+    assert "Figure detection" in result.error
+    assert "corrupt" in result.error

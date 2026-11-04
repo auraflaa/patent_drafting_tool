@@ -202,6 +202,15 @@ def _route_stubs(monkeypatch, **overrides):
         lambda collection, filters=None: overrides.get(collection, []),
     )
     monkeypatch.setattr(resources, "log_activity", lambda *args: None)
+    # Routes claim versions transactionally; tests pin the wiring, not the
+    # Firestore transaction, with an incrementing stand-in.
+    claimed = {"next": 0}
+
+    def fake_allocate(collection, doc_id, *, field="next_version", floor=0):
+        claimed["next"] = max(claimed["next"], floor) + 1
+        return claimed["next"]
+
+    monkeypatch.setattr(resources, "allocate_counter", fake_allocate)
     return created
 
 
@@ -271,7 +280,6 @@ def _vision_flags(monkeypatch):
     monkeypatch.setattr(form_ai.settings, "ai_api_url", "https://example.test/v1")
     monkeypatch.setattr(form_ai.settings, "ai_api_key", "key")
     monkeypatch.setattr(form_ai.settings, "ai_model", "model")
-    monkeypatch.setattr(form_ai, "_VISION_DISABLED", False)
 
 
 def test_classify_figures_updates_rows(monkeypatch):
@@ -407,7 +415,9 @@ def test_refine_group_falls_back_to_text_when_vision_refused(monkeypatch):
     assert calls["n"] == 2
     assert result["fields"]["exemplary_scenario"] == "A scenario."
     assert any("text only" in warning for warning in result["warnings"])
-    assert form_ai._VISION_DISABLED is True
+    # No process-wide poisoning: a later request still attempts vision. (The
+    # dedicated no-poison regression test pins this; here the fallback itself
+    # is what matters.)
 
 
 def test_select_context_ranks_and_budgets(monkeypatch):
@@ -463,6 +473,76 @@ def test_select_context_ranks_and_budgets(monkeypatch):
     assert "lunch menus" not in excerpts
     assert len(excerpts) <= 200
     assert figures[0]["alias"] == "fig-fig1"
+
+
+def test_vision_refusal_does_not_poison_later_requests(monkeypatch):
+    """A provider refusal falls back to text for that request only.
+
+    The old module-global disabled vision process-wide after one refusal,
+    silently downgrading every later patent until restart.
+    """
+    _vision_flags(monkeypatch)
+    calls = {"n": 0}
+    sent: dict = {}
+
+    monkeypatch.setattr(
+        form_ai,
+        "select_context",
+        lambda patent_id, query, max_chars, _cache=None: (
+            "",
+            [
+                {
+                    "alias": "fig-x1",
+                    "id": "x1",
+                    "label": "FIG. 1",
+                    "caption": "Wiper",
+                    "page": 1,
+                    "source": "spec.pdf",
+                    "image_blob_id": "b1",
+                }
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        form_ai.extraction_store, "read_figure_image", lambda row: b"\xff\xd8fake"
+    )
+    monkeypatch.setattr(form_ai, "_downscale", lambda image, edge: image)
+
+    def fake_post(messages, max_tokens):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise form_ai._VisionRejected("image content not supported")
+        sent["messages"] = messages
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '{"fields": {"exemplary_scenario": "A scenario.", '
+                            '"detailed_exemplary_scenario": "Details.", '
+                            '"best_working_method": "Mount it."}, '
+                            '"used_figures": []}'
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(form_ai, "_post_messages", fake_post)
+    raw = {
+        "exemplary_scenario": "A scenario.",
+        "detailed_exemplary_scenario": "Details.",
+        "best_working_method": "Mount it.",
+    }
+
+    first = form_ai.refine_group("p1", {}, "FORM_EMBODIMENTS", raw_values=raw)
+    assert any("text only" in warning for warning in first["warnings"])
+    assert calls["n"] == 2
+
+    form_ai.refine_group("p1", {}, "FORM_EMBODIMENTS", raw_values=raw)
+    assert any(
+        "image_url" in str(message) for message in sent["messages"]
+    ), "vision must be retried on the next request, not disabled globally"
 
 
 def test_select_context_aliases_come_from_row_ids(monkeypatch):

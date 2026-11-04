@@ -131,6 +131,57 @@ def test_detector_never_raises(monkeypatch):
     assert figure_detection.detect_pdf_figures(_pdf_bytes()) == []
 
 
+def test_session_creation_is_thread_safe(monkeypatch):
+    """Two uploads racing the first detection must build one session."""
+    import threading
+    import time
+
+    _configure(monkeypatch)
+    calls: list = []
+
+    class SlowSession(_StubSession):
+        def __init__(self):
+            super().__init__([])
+            calls.append(1)
+            time.sleep(0.5)
+
+    monkeypatch.setattr(figure_detection.settings, "yolo_model_path", "dummy.onnx")
+    monkeypatch.setattr(
+        "onnxruntime.InferenceSession", lambda *args, **kwargs: SlowSession()
+    )
+    monkeypatch.setattr(figure_detection, "_SESSION", None)
+    monkeypatch.setattr(figure_detection, "_SESSION_PATH", "")
+
+    results: list = []
+
+    def go():
+        results.append(figure_detection._session())
+
+    threads = [threading.Thread(target=go) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert len(calls) == 1
+    assert results[0] is results[1]
+
+
+def test_detection_failure_is_reported_to_the_caller(monkeypatch):
+    """An operator must distinguish 'no figures' from 'model broken'."""
+    _configure(monkeypatch)
+    monkeypatch.setattr(figure_detection.settings, "yolo_model_path", "dummy.onnx")
+
+    def explode():
+        raise RuntimeError("weights are corrupt")
+
+    monkeypatch.setattr(figure_detection, "_session", explode)
+    holder: dict = {}
+
+    assert figure_detection.detect_pdf_figures(_pdf_bytes(), error_out=holder) == []
+    assert "corrupt" in (holder.get("error") or "")
+
+
 def test_merge_detections_drops_overlapping_boxes():
     existing = [ingestion.Figure(page=1, bbox=[0, 0, 100, 100])]
     detected = [
