@@ -49,6 +49,7 @@ CONTRACT_PATHS = {
     ("get", "/api/patents/{patent_id}"),
     ("patch", "/api/patents/{patent_id}"),
     ("post", "/api/patents/{patent_id}/submit"),
+    ("post", "/api/patents/{patent_id}/recall"),
     ("post", "/api/patents/{patent_id}/assign"),
     ("post", "/api/patents/{patent_id}/auto-assign"),
     ("post", "/api/patents/{patent_id}/reassign"),

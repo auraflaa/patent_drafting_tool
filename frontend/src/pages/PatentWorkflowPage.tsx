@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { DashboardShell } from "../components/DashboardShell";
 import { StatusBadge } from "../components/StatusBadge";
 import { CollaborationPanel } from "../components/CollaborationPanel";
@@ -13,6 +14,7 @@ type Tab = "basic-info" | "questionnaire" | "collaboration";
 export default function PatentWorkflowPage() {
   const { id } = useParams<{ id: string }>();
   const patentId = id ?? "";
+  const { user } = useAuth();
 
   const [patent, setPatent] = useState<PatentOut | null>(null);
   const [tab, setTab] = useState<Tab>("basic-info");
@@ -34,6 +36,24 @@ export default function PatentWorkflowPage() {
   }, [patentId]);
 
   const isDraft = patent?.application_status === "Draft";
+  const canRecall =
+    patent?.application_status === "Submitted" &&
+    (user?.id === patent.created_by ||
+      user?.roles.some((r) => r === "ADMIN" || r === "SUPER_ADMIN") === true);
+
+  async function recallApplication() {
+    if (!window.confirm("Return this application to Draft? You can edit and resubmit it.")) return;
+    setSubmitBusy(true);
+    setError(null);
+    try {
+      await apiFetch(`/api/patents/${patentId}/recall`, { method: "POST" });
+      await loadPatent();
+    } catch (err) {
+      setError(getFriendlyError("PatentWorkflowPage.catch2", err, "Failed to recall"));
+    } finally {
+      setSubmitBusy(false);
+    }
+  }
 
   async function submitApplication() {
     setSubmitBusy(true);
@@ -85,6 +105,16 @@ export default function PatentWorkflowPage() {
               Submit application
             </button>
           )}
+          {canRecall && (
+            <button
+              onClick={recallApplication}
+              disabled={submitBusy}
+              title="Return to Draft to correct answers, then resubmit"
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Recall to Draft
+            </button>
+          )}
         </div>
       </div>
 
@@ -98,6 +128,9 @@ export default function PatentWorkflowPage() {
         <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
           This application is past Draft — Basic Information and the
           Questionnaire are read-only.
+          {canRecall && (
+            <> Use “Recall to Draft” above to correct answers and resubmit.</>
+          )}
         </p>
       )}
 

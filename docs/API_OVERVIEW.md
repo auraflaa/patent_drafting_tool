@@ -60,6 +60,7 @@ Membership is a `teams/{id}/members/{uid}` subcollection; removing a member remo
 | `GET` | `/api/patents/{patent_id}` | `<PATENTS_VIEW>` + visibility | One patent |
 | `PATCH` | `/api/patents/{patent_id}` | `<PATENTS_EDIT>` + creator/admin, status `Draft` | Body `{invention_title}`; renames the application |
 | `POST` | `/api/patents/{patent_id}/submit` | `<PATENTS_SUBMIT>` + creator/admin, status `Draft` | → `Submitted` |
+| `POST` | `/api/patents/{patent_id}/recall` | `<PATENTS_SUBMIT>` + creator/admin, status `Submitted`, unassigned | → `Draft`; questionnaire reopens as `In Progress` with answers kept |
 | `POST` | `/api/patents/{patent_id}/assign` | `<PATENTS_ASSIGN>` + creator/admin | Body `{patent_agent_id}`; → `Awaiting Patent Agent Acceptance` |
 | `POST` | `/api/patents/{patent_id}/auto-assign` | `<PATENTS_ASSIGN>` + creator/admin | Picks the least-loaded approved agent |
 | `POST` | `/api/patents/{patent_id}/reassign` | `<PATENTS_REASSIGN>` + admin | Body `{patent_agent_id, reason}`; appends assignment history |

@@ -678,6 +678,45 @@ def submit_patent(patent_id: str, user: dict = Depends(active_user)):
     return patent_out(updated)
 
 
+@router.post("/patents/{patent_id}/recall")
+def recall_patent(patent_id: str, user: dict = Depends(active_user)):
+    """Return a submitted application to Draft so answers can be corrected.
+
+    Submitting freezes the questionnaire; without this, a typo discovered
+    after submit is unfixable — rejection only returns the application to
+    Submitted, which is still read-only. Only the owner (or an admin) may
+    recall, and only while the application is still Submitted: once an
+    agent is on it, the draft belongs to the review flow. Answers and
+    version history are kept; the questionnaire simply reopens.
+    """
+    ensure_permission(user, "PATENTS_SUBMIT")
+    patent = require_patent(patent_id, user)
+    if not (is_patent_creator(patent, user) or is_admin(user)):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Only the application owner can recall it."
+        )
+    if patent.get("application_status") != "Submitted":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Only Submitted applications can be recalled.",
+        )
+    if patent.get("assigned_patent_agent_id"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "The application is already assigned; ask the agent to reject it first.",
+        )
+    questionnaire = _questionnaire(patent_id)
+    patch_doc(
+        "questionnaires",
+        questionnaire["id"],
+        {"questionnaire_status": "In Progress"},
+    )
+    updated = _set_patent(patent_id, {"application_status": "Draft"})
+    notify_many({str(patent.get("created_by"))}, patent_id, "PatentRecalled")
+    log_activity(user["uid"], "PatentRecalled", "PatentApplication", patent_id)
+    return patent_out(updated)
+
+
 def _record_assignment(
     patent_id: str,
     previous: str | None,
