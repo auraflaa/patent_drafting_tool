@@ -61,7 +61,9 @@ Current controls (Firebase runtime):
   (`backend/app/services/projections.py`).
 - **Account gating:** new users are `pending` until approved; the bootstrap
   admin is a single configured email. A Super Admin cannot reject their own
-  account or another Super Admin, and approvals, rejections, role changes, and
+  account or another Super Admin, and granting or revoking the Super Admin
+  role requires Super Admin (approval, role assign, and role revoke all
+  enforce this), and approvals, rejections, role changes, and
   permission/report-grant changes write an `activity` audit entry.
 - **Report access:** the users report is admin-only. It is omitted from the
   catalog for other roles, rejected by `run`/`export` before any Firestore
@@ -70,16 +72,21 @@ Current controls (Firebase runtime):
   text, and AI output are length-bounded and type-checked; control characters
   are rejected (except newlines/tabs where a field is multi-line). This keeps
   a single document below Firestore's 1 MiB limit.
-- **Upload validation:** non-empty content, `MAX_UPLOAD_SIZE_BYTES` cap, an
-  `ALLOWED_UPLOAD_EXTENSIONS` allowlist, and content sniffing (magic bytes)
+- **Upload validation:** non-empty content, `upload_limit_bytes` /
+  `max_upload_size_bytes` caps, an `allowed_upload_extensions` allowlist, and
+  content sniffing (magic bytes)
   so a renamed executable cannot pass as a PDF or image. Uploaded PDFs are
   converted to DOCX and the converted file is re-validated before storage.
   Office containers are checked for the required part and rejected when they
   exceed the ZIP bomb limits (entry count, entry size, total size, compression
   ratio, or encryption). The stored MIME type comes from the validated
-  extension, not from the client. Templates are restricted to `.docx`.
+  extension, not from the client. Template uploads accept `.docx` and `.pdf`
+  (PDFs are converted to DOCX before storage); legacy `.doc` is rejected.
+  Templates with unknown placeholders or parse errors are stored inactive and
+  cannot be activated.
 - **Transport:** CORS allow-list (`CORS_ORIGINS`), trusted hosts
-  (`ALLOWED_HOSTS`), HTTPS required in production, HSTS in production only,
+  (`ALLOWED_HOSTS`), HSTS in production only (HTTPS itself is enforced by the
+  platform/ingress per `DEPLOYMENT.md`, not by an in-app redirect),
   and a strict CSP on API responses (Swagger/ReDoc exempt). The static
   frontend CSP allows only the Firebase Auth loader (`apis.google.com`) and
   auth frame (`*.firebaseapp.com`, `accounts.google.com`) in addition to
