@@ -82,7 +82,9 @@ def _selected_figures(patent_id: str) -> list[dict]:
             continue
         selected.append(
             {
-                "alias": row.get("label") or row["id"],
+                # Same stable alias the AI figure index shows the model, so
+                # [[FIG:...]] markers in refined text resolve at render time.
+                "alias": extraction_store.figure_alias(row),
                 "caption": row.get("caption_override") or row.get("caption") or "",
                 "label": row.get("label") or "",
                 "image_bytes": image,

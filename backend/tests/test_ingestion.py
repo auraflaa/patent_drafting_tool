@@ -193,3 +193,25 @@ def test_direct_image_upload_rejects_garbage():
     result = ingestion.extract("sketch.png", b"not an image at all" * 500)
 
     assert result.status == ingestion.FAILED
+
+
+def test_docx_caption_does_not_leak_to_later_images():
+    """A FIG. caption belongs to the next image only, not every image after."""
+    import io
+
+    from docx import Document
+
+    document = Document()
+    document.add_paragraph("FIG. 1 — wiper assembly")
+    document.add_picture(io.BytesIO(_jpeg()))
+    document.add_paragraph("Unrelated assembly notes.")
+    document.add_picture(io.BytesIO(_jpeg()))
+    buffer = io.BytesIO()
+    document.save(buffer)
+
+    result = ingestion.extract("spec.docx", buffer.getvalue())
+
+    images = [figure for figure in result.figures if figure.kind == "image"]
+    assert len(images) == 2
+    assert "FIG. 1" in images[0].caption
+    assert images[1].caption == ""

@@ -419,19 +419,6 @@ def test_select_context_ranks_and_budgets(monkeypatch):
             else []
         ),
     )
-    text = (
-        "Unrelated filler paragraph about office supplies and weather.\n\n"
-        "The wiper blade travels along the rail assembly to clean the panel.\n\n"
-        "Another filler paragraph about lunch menus and parking."
-    )
-    monkeypatch.setattr(
-        "app.services.form_ai.query_docs",
-        lambda collection, filters=None: (
-            [{"id": "f1", "original_file_name": "spec.pdf"}]
-            if collection == "files"
-            else []
-        ),
-    )
     monkeypatch.setattr(
         form_ai.extraction_store,
         "query_docs",
@@ -443,10 +430,10 @@ def test_select_context_ranks_and_budgets(monkeypatch):
             }
         ],
     )
-    monkeypatch.setattr(
-        form_ai.extraction_store,
-        "read_text",
-        lambda file_id: text.encode("utf-8"),
+    text = (
+        "Unrelated filler paragraph about office supplies and weather.\n\n"
+        "The wiper blade travels along the rail assembly to clean the panel.\n\n"
+        "Another filler paragraph about lunch menus and parking."
     )
     monkeypatch.setattr(
         form_ai.extraction_store,
@@ -475,7 +462,57 @@ def test_select_context_ranks_and_budgets(monkeypatch):
     assert "wiper blade" in excerpts
     assert "lunch menus" not in excerpts
     assert len(excerpts) <= 200
-    assert figures[0]["alias"] == "fig-1"
+    assert figures[0]["alias"] == "fig-fig1"
+
+
+def test_select_context_aliases_come_from_row_ids(monkeypatch):
+    """Aliases must identify the figure row, not its position.
+
+    Positions renumber whenever figures are added or removed, which would
+    silently repoint markers stored in already-refined text.
+    """
+    monkeypatch.setattr(
+        "app.services.form_ai.query_docs",
+        lambda collection, filters=None: [],
+    )
+    monkeypatch.setattr(
+        form_ai.extraction_store,
+        "query_docs",
+        lambda collection, filters=None: [],
+    )
+    monkeypatch.setattr(
+        form_ai.extraction_store,
+        "figures_for_patent",
+        lambda patent_id: [
+            {
+                "id": "rowBBB",
+                "label": "FIG. 2",
+                "caption": "Rail",
+                "page": 3,
+                "source": "spec.pdf",
+                "usable": "usable",
+                "include_in_drawings": True,
+                "has_image": True,
+            },
+            {
+                "id": "rowAAA",
+                "label": "FIG. 1",
+                "caption": "Wiper",
+                "page": 2,
+                "source": "spec.pdf",
+                "usable": "usable",
+                "include_in_drawings": True,
+                "has_image": True,
+            },
+        ],
+    )
+
+    _, figures = form_ai.select_context("p1", "wiper rail", 2000)
+
+    assert [figure["alias"] for figure in figures] == [
+        "fig-rowBBB",
+        "fig-rowAAA",
+    ]
 
 
 def test_classify_route_calls_the_service(monkeypatch):

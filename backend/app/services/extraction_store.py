@@ -118,6 +118,17 @@ def figures_for_patent(patent_id: str) -> list[dict]:
     return sort_docs(sort_docs(rows, "page"), "display_order")
 
 
+def figure_alias(row: dict) -> str:
+    """Stable marker alias for a figure row.
+
+    Derived from the row id, never its position: uploads, deletions, and
+    screening flips renumber positions, which would silently repoint
+    ``[[FIG:...]]`` markers stored in already-refined text. The AI figure
+    index and the drawings renderer both use this, so the two always agree.
+    """
+    return f"fig-{row.get('id') or 'unknown'}"
+
+
 def _patent_figure_hashes(patent_id: str) -> set[str]:
     """Perceptual hashes of figures already stored for duplicate screening."""
     try:

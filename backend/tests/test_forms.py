@@ -173,6 +173,12 @@ def test_form1_renders_applicant_inventors_title_and_warning(context) -> None:
     assert body.count(forms.DISCLOSURE_TEXT) == 1
 
 
+def test_disclosure_states_not_legal_advice() -> None:
+    """Every generated form must say it is not legal advice (ADR-008 §8)."""
+    assert "not legal advice" in forms.DISCLOSURE_TEXT.lower()
+    assert "professional" in forms.DISCLOSURE_TEXT.lower()
+
+
 def test_form2_renders_narrative_prior_art_and_solution(context) -> None:
     payload, report, doc = _render("FORM2", context)
     body = "\n".join(paragraph.text for paragraph in doc.paragraphs)
@@ -329,3 +335,48 @@ def test_seven_inventors_render(profile) -> None:
     )
     assert "Inventor 7" in text
     assert "{{" not in text
+
+
+def test_form2_substitutes_figure_markers_with_sheet_numbers(context) -> None:
+    """Inline [[FIG:alias]] markers must render as FIG. N, never verbatim."""
+    marked = dict(context)
+    marked["exemplary_scenario"] = (
+        "Each morning the wiper [[FIG:fig-r1]] sweeps the panel, "
+        "driven along the rail [[FIG:fig-r2]]."
+    )
+    figures = [
+        {
+            "alias": "fig-r1",
+            "label": "FIG. 1",
+            "caption": "Wiper",
+            "image_bytes": _jpeg_bytes(),
+        },
+        {
+            "alias": "fig-r2",
+            "label": "FIG. 2",
+            "caption": "Rail",
+            "image_bytes": _jpeg_bytes(),
+        },
+    ]
+    payload, _ = forms.render_form("FORM2", marked, figures=figures)
+    body = "\n".join(paragraph.text for paragraph in Document(io.BytesIO(payload)).paragraphs)
+    assert "[[FIG:" not in body
+    assert "FIG. 1" in body
+    assert "FIG. 2" in body
+
+
+def test_form2_unknown_figure_marker_fails_closed(context) -> None:
+    """A marker for a drawing that is not embedded must fail, not ship."""
+    marked = dict(context)
+    marked["exemplary_scenario"] = "See the wiper [[FIG:fig-gone]]."
+    figures = [
+        {
+            "alias": "fig-r1",
+            "label": "FIG. 1",
+            "caption": "Wiper",
+            "image_bytes": _jpeg_bytes(),
+        },
+    ]
+    with pytest.raises(forms.FormRenderError) as exc:
+        forms.render_form("FORM2", marked, figures=figures)
+    assert "fig-gone" in str(exc.value)

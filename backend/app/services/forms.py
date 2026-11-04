@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -34,7 +35,10 @@ logger = logging.getLogger(__name__)
 
 FIGURE_MARKER = "[[FIGURE_BLOCK]]"
 NO_DRAWINGS_LINE = "No drawings were selected for this application."
-DISCLOSURE_TEXT = "This is for drafting purposes only."
+DISCLOSURE_TEXT = (
+    "This is for drafting purposes only and is not legal advice; "
+    "a qualified patent professional must review it before filing."
+)
 MAX_INVENTORS = 7
 
 _JINJA_ENV = SandboxedEnvironment(undefined=jinja2.StrictUndefined)
@@ -144,6 +148,41 @@ def build_context(
     return context
 
 
+FIGURE_MARKER_RE = re.compile(r"\[\[FIG:([A-Za-z0-9_-]+)\]\]")
+
+
+def substitute_figure_markers(
+    context: dict, figures: list[dict], *, form_label: str
+) -> dict:
+    """Replace inline ``[[FIG:alias]]`` markers with sheet numbers.
+
+    ``figures`` is the embedded set in sheet order, so the first embedded
+    drawing is FIG. 1. A marker for a drawing that is not embedded fails
+    closed: a filing must never cite a drawing the document does not contain.
+    """
+    numbers: dict[str, int] = {}
+    for number, figure in enumerate(figures, start=1):
+        alias = figure.get("alias")
+        if alias and alias not in numbers:
+            numbers[alias] = number
+
+    def _replace(match: re.Match) -> str:
+        alias = match.group(1)
+        if alias not in numbers:
+            raise FormRenderError(
+                f"{form_label} cites {alias}, which is not among the "
+                "embedded drawings. Regenerate the forms so the markers "
+                "match the selected figures."
+            )
+        return f"FIG. {numbers[alias]}"
+
+    replaced = {}
+    for key, value in context.items():
+        if isinstance(value, str) and "[[FIG:" in value:
+            replaced[key] = FIGURE_MARKER_RE.sub(_replace, value)
+    return {**context, **replaced}
+
+
 def _missing_required(spec: FormSpec, context: dict) -> list[str]:
     return [key for key in spec.required if not str(context.get(key) or "").strip()]
 
@@ -162,6 +201,11 @@ def render_form(
     would produce a silently incomplete legal form raises instead.
     """
     spec = form_specs.BY_CODE[code]
+    # Inline figure markers resolve against the embedded sheet order, before
+    # any required-field check: a filing must never ship a raw [[FIG:...]].
+    context = substitute_figure_markers(
+        dict(context), list(figures or []), form_label=spec.label
+    )
     missing = _missing_required(spec, context)
     if missing:
         raise FormRenderError(

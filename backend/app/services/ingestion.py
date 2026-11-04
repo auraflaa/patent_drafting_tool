@@ -383,6 +383,9 @@ def _extract_docx(content: bytes) -> Extraction:
                 figure = _embedded_figure(document.part, rel_id, caption)
                 if figure is not None:
                     figures.append(figure)
+                # A caption describes the image it precedes, not every image
+                # after it: consume once so later images do not inherit it.
+                caption = ""
         elif tag == "tbl":
             table = Table(child, document)
             rows = [
@@ -398,6 +401,7 @@ def _extract_docx(content: bytes) -> Extraction:
                         label=_label_from(caption),
                     )
                 )
+                caption = ""
     text = "\n\n".join(blocks)
     layout = {
         "elements": [
@@ -461,6 +465,9 @@ def _extract_pptx(content: bytes) -> Extraction:
                                 content_type=content_type,
                             )
                         )
+                    # Consume-once, as in DOCX: a caption belongs to the
+                    # image it precedes, not every image after it.
+                    caption = ""
         if slide.has_notes_slide:
             notes = slide.notes_slide.notes_text_frame.text.strip()
             if notes:

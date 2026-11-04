@@ -269,14 +269,14 @@ def select_context(
             break
     blocks = [f"[{name}]\n{paragraph}" for name, _, paragraph in picked]
     figures = []
-    for index, row in enumerate(figure_rows, start=1):
+    for row in figure_rows:
         if (
             row.get("usable") != "usable"
             or not row.get("include_in_drawings", True)
             or not row.get("has_image")
         ):
             continue
-        alias = f"fig-{index}"
+        alias = extraction_store.figure_alias(row)
         figures.append(
             {
                 "alias": alias,
