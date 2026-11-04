@@ -1115,8 +1115,15 @@ def submit_questionnaire(patent_id: str, user: dict = Depends(active_user)):
         "questionnaire_versions",
         filters=[("patent_application_id", "==", patent_id)],
     )
-    version_number = 1 + max(
-        [int(doc.get("version_number") or 0) for doc in versions] or [0]
+    # Two submits racing the old read-max-then-write both minted the same
+    # number. The transaction serialises the claims; the floor keeps legacy
+    # rows (written before counters existed) from colliding with new claims.
+    version_number = allocate_counter(
+        "questionnaire_counters",
+        patent_id,
+        floor=max(
+            [int(doc.get("version_number") or 0) for doc in versions] or [0]
+        ),
     )
     snapshot = {
         "questionnaire_id": questionnaire["id"],
@@ -1266,13 +1273,17 @@ def generate_draft(
                 status.HTTP_502_BAD_GATEWAY,
                 f"Section {section.replace('_', ' ').title()}: {exc}",
             ) from exc
-        version_number = 1 + max(
-            [
-                int(doc.get("version_number") or 0)
-                for doc in existing
-                if doc.get("section_type") == section
-            ]
-            or [0]
+        version_number = allocate_counter(
+            "draft_counters",
+            f"{patent_id}:{section}",
+            floor=max(
+                [
+                    int(doc.get("version_number") or 0)
+                    for doc in existing
+                    if doc.get("section_type") == section
+                ]
+                or [0]
+            ),
         )
         created.append(
             create_doc(
