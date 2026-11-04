@@ -433,3 +433,30 @@ def test_reap_stale_jobs_reaps_jobs_without_timestamps(
     resources._reap_stale_jobs("p1")
 
     assert [call[0] for call in patched] == ["document_jobs"]
+
+
+def test_list_patents_filters_by_team(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import resources
+
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(
+        resources,
+        "visible_patents",
+        lambda user: [
+            {"id": "p1", "team_id": "t1", "invention_title": "One"},
+            {"id": "p2", "team_id": "t2", "invention_title": "Two"},
+        ],
+    )
+    monkeypatch.setattr(
+        resources, "_visible_team", lambda team_id, user: {"id": team_id}
+    )
+    user = {"uid": "u1", "role_codes": ["INNOVATOR"]}
+
+    mine = resources.list_patents(team_id="t1", user=user)
+    assert [doc["id"] for doc in mine] == ["p1"]
+    # NOTE: called with an explicit None because FastAPI only resolves the
+    # Query() default inside real requests; direct calls see the default.
+    everything = resources.list_patents(team_id=None, user=user)
+    assert [doc["id"] for doc in everything] == ["p1", "p2"]

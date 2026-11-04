@@ -552,9 +552,19 @@ def available_agents(user: dict = Depends(active_user)):
 
 
 @router.get("/patents")
-def list_patents(user: dict = Depends(active_user)):
+def list_patents(
+    team_id: str | None = Query(default=None),
+    user: dict = Depends(active_user),
+):
     ensure_permission(user, "PATENTS_VIEW")
-    return [patent_out(doc) for doc in sort_docs(visible_patents(user), "created_at", reverse=True)]
+    patents = visible_patents(user)
+    if team_id is not None:
+        # A team switch must not pull every patent across the wire: filter
+        # server-side. Unknown or inaccessible teams 404/403 here, exactly
+        # as they do when creating a patent into them.
+        _visible_team(team_id, user)
+        patents = [doc for doc in patents if doc.get("team_id") == team_id]
+    return [patent_out(doc) for doc in sort_docs(patents, "created_at", reverse=True)]
 
 
 @router.post("/patents", status_code=status.HTTP_201_CREATED)
