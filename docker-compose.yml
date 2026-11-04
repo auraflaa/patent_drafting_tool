@@ -17,6 +17,11 @@ services:
     restart: unless-stopped
     env_file:
       - ./backend/.env
+    # The service-account JSON is mounted, never baked into the image
+    # (see DEPLOYMENT.md). Without this, FIREBASE_SERVICE_ACCOUNT_PATH
+    # points nowhere and /health stays degraded.
+    volumes:
+      - ./backend/secrets:/app/secrets:ro
     # The host port is configurable because 8000 is a popular local port
     # (and `frontend/.env` → VITE_API_URL must match whatever you pick).
     ports:
