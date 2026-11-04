@@ -109,7 +109,7 @@ Guards in `app/api/resources.py` and `app/services/projections.py`:
 
 - `submit`: patent creator or admin, and only while `Draft`.
 - `assign` / `auto-assign` / `reassign`: `ADMIN`/`SUPER_ADMIN`; assignee must be an approved `PATENT_AGENT`; auto-assign picks the lowest active assignment count. Assignment history is appended to the patent document.
-- `accept` / `reject`: the assigned agent (admins may act on their behalf); rejection clears the assignment.
+- `accept` / `reject`: only the assigned agent, identified by their own token; rejection clears the assignment and returns the application to `Submitted` (still read-only — recall to `Draft` to edit again).
 - Basic info + applicants/inventors are editable only while `Draft` (`can_edit_basic_info`).
 - Draft generation requires `Under Review` and a completed questionnaire; document generation requires `Under Review` or `Draft Generated` and the assigned agent/admin.
 - Statuses beyond `Draft Generated` (filing, examination, grant) are display/import states today; no endpoint moves an application into them yet.
