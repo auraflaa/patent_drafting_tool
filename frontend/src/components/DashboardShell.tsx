@@ -16,13 +16,16 @@ export function DashboardShell({
   const { user, logout } = useAuth();
   const location = useLocation();
   const homePath = homePathFor(user?.roles);
-  const calendarPath = homePath === "/login" ? "/calendar" : `${homePath}/calendar`;
-  const reportsPath = homePath === "/login" ? "/reports" : `${homePath}/reports`;
+  // A signed-in account holding no known role has no workspace routes: point
+  // every nav item at /not-authorized instead of dead sub-paths of /login.
+  const safePath = (path: string) => (homePath === "/login" ? "/not-authorized" : path);
+  const calendarPath = homePath === "/login" ? "/not-authorized" : `${homePath}/calendar`;
+  const reportsPath = homePath === "/login" ? "/not-authorized" : `${homePath}/reports`;
 
   const navItems = [
-    { label: "Dashboard", to: homePath },
-    { label: "Reports", to: reportsPath },
-    { label: "Calendar", to: calendarPath },
+    { label: "Dashboard", to: safePath(homePath) },
+    { label: "Reports", to: safePath(reportsPath) },
+    { label: "Calendar", to: safePath(calendarPath) },
   ];
 
   return (

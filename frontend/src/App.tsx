@@ -1,8 +1,9 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider } from "./context/AuthContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { LoadingState } from "./components/LoadingState";
+import { homePathFor } from "./lib/roles";
 
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const AuthCallbackPage = lazy(() => import("./pages/AuthCallbackPage"));
@@ -19,13 +20,36 @@ const SuperAdminDashboard = lazy(() => import("./pages/SuperAdminDashboard"));
 const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const ReportsPage = lazy(() => import("./pages/ReportsPage"));
 
+/**
+ * Landing router: waits for the session to resolve, then forwards by auth
+ * state. Unknown paths land here too instead of a blank page.
+ */
+function IndexRoute() {
+  const { status, user } = useAuth();
+  if (status === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <LoadingState label="Signing in…" />
+      </div>
+    );
+  }
+  if (status === "pending") {
+    return <Navigate to="/pending-approval" replace />;
+  }
+  if (status === "unauthenticated" || !user) {
+    return <Navigate to="/login" replace />;
+  }
+  const home = homePathFor(user.roles);
+  return <Navigate to={home === "/login" ? "/not-authorized" : home} replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-50"><LoadingState label="Loading page…" /></div>}>
           <Routes>
-          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/" element={<IndexRoute />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route path="/pending-approval" element={<PendingApprovalPage />} />
@@ -114,9 +138,8 @@ export default function App() {
           <Route
             path="/admin/patents/:id"
             element={
-              // Shared with Super Admin — closes open item #38. Backend's
-              // visible_patents_query/is_admin() already treat ADMIN and
-              // SUPER_ADMIN identically for patent visibility.
+              // Shared with Super Admin — backend visibility treats ADMIN and
+              // SUPER_ADMIN identically for patents.
               <ProtectedRoute requireRole={["ADMIN", "SUPER_ADMIN"]}>
                 <AdminPatentDetailPage />
               </ProtectedRoute>
@@ -172,6 +195,7 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="*" element={<IndexRoute />} />
         </Routes>
         </Suspense>
       </AuthProvider>

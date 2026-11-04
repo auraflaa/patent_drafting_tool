@@ -43,6 +43,14 @@ FROM nginx:1.27-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# The browser may only call the API origin named in the CSP. That origin is
+# whatever VITE_API_URL was baked into the bundle, so stamp the same value
+# into the header here — localhost, LAN IP, and same-origin deploys all work
+# with no manual nginx edits. An empty value leaves the static default.
+# NOTE: build ARGs do not cross the FROM boundary; re-declare the one used.
+ARG VITE_API_URL
+RUN sed -i "s|__API_ORIGIN__|${VITE_API_URL}|g" /etc/nginx/conf.d/default.conf
+
 EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { getRedirectResult } from "firebase/auth";
 import { useAuth } from "../context/AuthContext";
 import { homePathFor } from "../lib/roles";
 import { LoadingState } from "../components/LoadingState";
 import { getFriendlyError } from "../lib/api";
+import { firebaseAuth, isFirebaseConfigured } from "../lib/firebase";
 
 const SIGN_IN_ERROR_MESSAGES: Record<string, string> = {
   "auth/popup-blocked":
@@ -26,13 +28,42 @@ export default function LoginPage() {
 
   // If a session already exists, go straight to the role's landing page.
   // Pending accounts (awaiting admin approval) go to the pending-approval page.
+  // An approved account holding no known role is a dead end for the role
+  // router (its home would be /login itself), so send it to /not-authorized.
   useEffect(() => {
     if (status === "approved" && user) {
-      navigate(homePathFor(user.roles), { replace: true });
+      const home = homePathFor(user.roles);
+      navigate(home === "/login" ? "/not-authorized" : home, { replace: true });
     } else if (status === "pending") {
       navigate("/pending-approval", { replace: true });
     }
   }, [status, user, navigate]);
+
+  // A redirect sign-in returns to this page (where it started). A failure
+  // here is otherwise silent — the browser just lands back on /login — so
+  // surface it instead of leaving the user staring at the button.
+  useEffect(() => {
+    if (!isFirebaseConfigured()) return;
+    let cancelled = false;
+    void getRedirectResult(firebaseAuth()).catch((error: unknown) => {
+      if (cancelled) return;
+      const code = (error as { code?: string } | null)?.code ?? "";
+      // A load with no pending redirect, or a deliberate cancel, is not a failure.
+      if (
+        code === "auth/no-auth-event" ||
+        code === "auth/null-user" ||
+        code === "auth/popup-closed-by-user" ||
+        code === "auth/cancelled-popup-request"
+      )
+        return;
+      setError(
+        `Sign-in did not complete: ${getFriendlyError("LoginPage.redirect", error, "Google sign-in failed.")}${code ? ` (${code})` : ""}`,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // While Firebase restores the session after a redirect sign-in, show a
   // loading indicator so the user isn't left on a blank page.
@@ -60,6 +91,11 @@ export default function LoginPage() {
       // onAuthStateChanged in AuthContext takes over from here.
     } catch (err) {
       const code = (err as { code?: string } | null)?.code ?? "";
+      // Closing the pop-up, or a second request cancelling the first, is a
+      // deliberate cancel — not a failure worth an alert.
+      if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+        return;
+      }
       const message =
         SIGN_IN_ERROR_MESSAGES[code] ||
         getFriendlyError("LoginPage.signIn", err, "Google sign-in failed. Please try again.");

@@ -73,6 +73,10 @@ Build + run:
 
 ```powershell
 # Every VITE_* value is baked at build time — it cannot be changed at run time.
+# Changing frontend/.env (or the host the browser uses: localhost vs LAN IP
+# vs domain) requires rebuilding the image. The nginx CSP's connect-src
+# follows VITE_API_URL automatically at build time, so the rebuilt image
+# permits exactly the API origin it was built against — no manual CSP edits.
 docker build `
   --build-arg VITE_API_URL=http://localhost:8000 `
   --build-arg VITE_FIREBASE_API_KEY=... `

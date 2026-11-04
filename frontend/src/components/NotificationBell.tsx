@@ -89,7 +89,11 @@ export function NotificationBell() {
     }
     setOpen(false);
     if (n.patent_application_id) {
-      navigate(patentPathFor(user?.roles, n.patent_application_id));
+      // A roleless account has no workspace routes; dropping its deep link
+      // on /login would bounce it to /not-authorized with the target lost
+      // anyway. Send it straight to /not-authorized instead of a silent detour.
+      const target = patentPathFor(user?.roles, n.patent_application_id);
+      navigate(target === "/login" ? "/not-authorized" : target);
     }
   }
 

@@ -1,6 +1,12 @@
 import { formatFileSize } from "./format";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// Trailing slashes produce `//api/…` URLs: most servers normalise those, but
+// any intermediary that redirects `//` → `/` drops the Authorization header
+// and the next request 401s the session away. Normalise once, here.
+const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(
+  /\/+$/,
+  "",
+);
 
 /** Returns a fresh Firebase ID token for the signed-in user, or null. */
 type TokenProvider = () => Promise<string | null>;
@@ -28,6 +34,16 @@ let reportedUnauthorized = false;
 
 export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
   unauthorizedHandler = handler;
+  reportedUnauthorized = false;
+}
+
+/**
+ * Restart the once-per-session 401 reporting (new sign-in, explicit sign-out).
+ * Without this, a second user signing in on the same page load inherits the
+ * first session's "already reported" flag and their first real 401 is
+ * swallowed, leaving them on a broken page.
+ */
+export function resetUnauthorizedFlag() {
   reportedUnauthorized = false;
 }
 

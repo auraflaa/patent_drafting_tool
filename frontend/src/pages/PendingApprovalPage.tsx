@@ -7,20 +7,21 @@ export default function PendingApprovalPage() {
   const { user, status, refreshMe, logout } = useAuth();
   const navigate = useNavigate();
 
-  // Poll only while there is still something to wait for. Once the user is
-  // approved, rejected, or signed out, the interval is torn down instead of
-  // firing a request every 30s against a dead session.
+  // Poll only while approval is still pending. Rejected/Suspended accounts
+  // have no transition to wait for — polling them burns rate-limit budget
+  // on requests whose answer cannot change.
   useEffect(() => {
-    if (status !== "pending") return;
+    if (status !== "pending" || user?.account_status !== "Pending") return;
     const interval = setInterval(() => {
       void refreshMe();
     }, 30_000);
     return () => clearInterval(interval);
-  }, [status, refreshMe]);
+  }, [status, user, refreshMe]);
 
   useEffect(() => {
     if (status === "approved" && user) {
-      navigate(homePathFor(user.roles), { replace: true });
+      const home = homePathFor(user.roles);
+      navigate(home === "/login" ? "/not-authorized" : home, { replace: true });
     }
     if (status === "unauthenticated") {
       navigate("/login", { replace: true });

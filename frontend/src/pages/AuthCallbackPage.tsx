@@ -25,7 +25,8 @@ export default function AuthCallbackPage() {
       navigate("/login", { replace: true });
       return;
     }
-    navigate(homePathFor(user.roles), { replace: true });
+    const home = homePathFor(user.roles);
+    navigate(home === "/login" ? "/not-authorized" : home, { replace: true });
   }, [status, user, navigate]);
 
   return (

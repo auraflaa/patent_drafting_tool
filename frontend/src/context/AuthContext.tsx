@@ -9,7 +9,6 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import {
-  getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
   signInWithPopup,
@@ -21,6 +20,7 @@ import {
   apiFetch,
   setTokenProvider,
   setUnauthorizedHandler,
+  resetUnauthorizedFlag,
   ApiError,
   logError,
 } from "../lib/api";
@@ -168,7 +168,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     userRef.current = user;
   }, [user]);
 
+  // Generation counter for loadMe: an older in-flight request resolving
+  // after a session clear (or a newer load) must not resurrect state or
+  // overwrite the cache. Bumped by loadMe and by clearSession.
+  const loadMeGenRef = useRef(0);
+  const loadMeInflightRef = useRef<Promise<void> | null>(null);
+
   const clearSession = useCallback(() => {
+    // Invalidate anything still in flight before wiping state.
+    loadMeGenRef.current += 1;
+    loadMeInflightRef.current = null;
+    resetUnauthorizedFlag();
     setUser(null);
     setPermissions([]);
     setStatus("unauthenticated");
@@ -216,8 +226,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearSession]);
 
   const loadMe = useCallback(async () => {
+    // Single-flight: concurrent callers (initial load, 30 s polls, retries)
+    // share one request instead of racing each other into split-brain state.
+    if (loadMeInflightRef.current) {
+      await loadMeInflightRef.current;
+      return;
+    }
+    const generation = ++loadMeGenRef.current;
+    const run = (async () => {
     try {
       const me = await apiFetch<MeResponse>("/api/auth/me");
+      if (generation !== loadMeGenRef.current) return; // superseded
+      // A disabled account must never look approved: every data route
+      // would 403 while the dashboard renders, a silent dead-end.
+      if (me.user.is_active === false) {
+        try {
+          await signOut(firebaseAuth());
+        } catch {
+          // nothing else to do — the local state is cleared below
+        }
+        setSessionError(
+          "Your account has been disabled. Contact your Super Admin for details.",
+        );
+        clearSession();
+        return;
+      }
       setUser(me.user);
       setPermissions(me.permissions);
       setSessionError(null);
@@ -227,6 +260,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStatus(nextStatus);
       writeCachedProfile(me.user, me.permissions, nextStatus);
     } catch (error) {
+      if (generation !== loadMeGenRef.current) return; // superseded
       logError("loadMe", error);
       // A 401 means Firebase no longer accepts the session; anything else
       // (network, 5xx, timeout) only means we could not describe the user.
@@ -246,13 +280,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearSession();
         return;
       }
+      // A 403 means authenticated but not allowed. Keep a pending account
+      // on its waiting screen; anything else drops to login with a reason.
+      if (error instanceof ApiError && error.status === 403) {
+        const cached = userRef.current;
+        if (cached && PENDING_ACCOUNT_STATUSES.has(cached.account_status)) {
+          setSessionError(
+            "Your account status changed. This page will update automatically.",
+          );
+          return;
+        }
+        setSessionError(
+          "Your account does not have access. Contact your Super Admin.",
+        );
+        clearSession();
+        return;
+      }
       // An outage must not look like a sign-out: a wedged backend used to clear
       // the session here, so a long-running server "logged users out". Keep the
       // cached profile and let the next request retry; only an account with no
       // cached profile falls back to the login screen.
       setSessionError("The API could not load your account. Try again shortly.");
       if (!userRef.current) setStatus("unauthenticated");
-    }
+      } finally {
+        // Only the latest generation owns the slot: a newer loadMe that
+        // started while this one was in flight replaces it instead.
+        if (generation === loadMeGenRef.current) loadMeInflightRef.current = null;
+      }
+    })();
+    loadMeInflightRef.current = run;
+    await run;
   }, [clearSession]);
 
   const handleSignedIn = useCallback(
@@ -272,6 +329,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearSession();
         return;
       }
+      resetUnauthorizedFlag();
       await loadMe();
     },
     [clearSession, loadMe],
@@ -296,28 +354,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe?.();
   }, [handleSignedIn]);
 
-  // The redirect fallback finishes on the next page load, and a failure there
-  // is otherwise silent: the browser lands back on /login with no user and no
-  // message. Read the result once so those errors reach the login screen.
-  useEffect(() => {
-    if (!isFirebaseConfigured()) return;
-    let cancelled = false;
-    void getRedirectResult(firebaseAuth())
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        const code = (error as { code?: string } | null)?.code ?? "";
-        // A load with no pending redirect is not a failure.
-        if (code === "auth/no-auth-event" || code === "auth/null-user") return;
-        logError("AuthContext.getRedirectResult", error);
-        setSessionError(
-          `Sign-in did not complete: ${signInErrorDetail(error)}${code ? ` (${code})` : ""}`,
-        );
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
+  // Redirect results are handled by the login page (the only place a
+  // redirect sign-in starts), so the provider does not pay for a Firebase
+  // round-trip on every mount.
   const signInWithGoogle = useCallback(async () => {
     const auth = firebaseAuth();
     setSessionError(null);
@@ -339,8 +378,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
-    // Best-effort ACK; the real session lives in Firebase, not the API.
-    apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    // Best-effort ACK, sent without a token: the real session lives in
+    // Firebase, and a 401 here must not trip the global sign-out handler.
+    apiFetch("/api/auth/logout", { method: "POST", auth: false }).catch(() => {});
     try {
       void signOut(firebaseAuth());
     } catch {
@@ -360,7 +400,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (status !== "approved") return;
+    if (status !== "approved" && status !== "pending") return;
     const interval = setInterval(() => {
       if (Date.now() - lastActivityRef.current > IDLE_TIMEOUT_MS) {
         logout();
