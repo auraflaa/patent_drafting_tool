@@ -1,15 +1,16 @@
-# CI — lint, test, cross-OS matrix
+# CI — lint, test, audit, cross-OS matrix
 #
-# What runs on every push + pull request:
+# What runs on every push + pull request (main and dev — development happens
+# on dev, so breakage must surface before the PR to main opens):
 #   1. backend   (ubuntu/windows/macos × Python 3.11/3.13): install, compile,
 #      import smoke, offline pytest suite (no Firebase credentials needed)
-#   2. frontend  (ubuntu/windows/macos × Node 20): npm ci, lint (advisory until
-#      eslint is configured), tsc + vite build
-#   3. docs-health (ubuntu): required community-health files present, no secrets staged
+#   2. frontend  (ubuntu/windows/macos × Node 20): npm ci, eslint (required),
+#      tsc + vite build, advisory npm audit (see the step comment)
+#   3. audit     (ubuntu): pip-audit over the installed backend environment
+#      (required — fails on any known vulnerability in app dependencies)
+#   4. docs-health (ubuntu): required community-health files present, no secrets staged
 #
-# Branch protection should require: backend, frontend, docs-health.
-# The lint step is advisory (continue-on-error) and must NOT be required —
-# see the inline comment.
+# Branch protection should require: backend, frontend, audit, docs-health.
 #
 # There is no Postgres service and no legacy SQL suite any more: Firebase is
 # the only system of record (ADR-005).
@@ -18,7 +19,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 concurrency:
@@ -96,18 +97,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # No eslint config/deps are committed yet (package.json has a lint
-      # script but eslint is not in devDependencies), so this stays advisory
-      # until the eslint setup lands. DO NOT require it in branch protection.
-      - name: Lint (advisory until eslint is configured)
-        run: npm run lint --if-present
-        continue-on-error: true
+      # eslint is configured (eslint.config.js) and the suite passes clean,
+      # so lint is a required gate like the build.
+      - name: Lint
+        run: npm run lint
 
       # Vite inlines VITE_* at build time; empty values are fine because
       # src/lib/firebase.ts reports a configuration error at runtime instead
       # of failing the build.
       - name: Type-check + build
         run: npm run build
+
+      # Advisory on purpose (reviewed 2026-11, re-check 2027-02): the 4 high
+      # findings are transitive (@grpc/grpc-js via the firebase v13 line;
+      # the registry's fix is a firebase 9.14 downgrade — wrong direction)
+      # and unreachable from our usage (browser SDK, no server-side gRPC
+      # auth). Fixing them needs firebase/react-router majors, tracked
+      # separately from this gate.
+      - name: Dependency audit (advisory — see comment)
+        run: npm audit --audit-level=high
+        continue-on-error: true
 
       - name: Upload dist artifact (ubuntu only)
         if: matrix.os == 'ubuntu-latest'
@@ -116,6 +125,34 @@ jobs:
           name: frontend-dist
           path: frontend/dist
           retention-days: 7
+
+  # ----------------------------------------------------------------- audit --
+  audit:
+    name: audit / pip-audit on ubuntu
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools
+          pip install -r requirements-dev.txt
+
+      # Required gate: fails on any known vulnerability in the installed
+      # app dependencies. pip/setuptools are upgraded first so installer
+      # tooling is never what trips it.
+      - name: Audit installed dependencies
+        run: python -m pip_audit --desc
 
   # ------------------------------------------------------------ docs-health --
   docs-health:

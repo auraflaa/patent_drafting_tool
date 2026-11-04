@@ -5,3 +5,7 @@
 # pytest 9 carries the fix for PYSEC-2026-1845; the offline suite needs no
 # plugins beyond what it already imports.
 pytest>=9.0.3,<10.0
+
+# Dependency audit (CI audit job). Pinned to the 2.x line; the job upgrades
+# pip/setuptools first so installer tooling is never what trips the gate.
+pip-audit>=2.9,<3.0
