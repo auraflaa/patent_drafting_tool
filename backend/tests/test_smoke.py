@@ -1427,3 +1427,27 @@ def test_production_warns_when_allowed_hosts_is_wildcard(
     monkeypatch.setattr(settings, "allowed_hosts", "api.example.com")
     main.warn_insecure_hosts()
     assert not warnings
+
+
+def test_production_warns_when_cors_origins_is_wildcard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app import main
+    from app.core.config import settings
+
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        main.logger, "warning", lambda message, *args: warnings.append(message)
+    )
+
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "cors_origins", "*")
+    main.warn_open_cors()
+    assert any("CORS_ORIGINS" in message for message in warnings)
+
+    warnings.clear()
+    monkeypatch.setattr(
+        settings, "cors_origins", "https://app.example.com"
+    )
+    main.warn_open_cors()
+    assert not warnings

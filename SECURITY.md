@@ -61,10 +61,11 @@ Current controls (Firebase runtime):
   (`backend/app/services/projections.py`).
 - **Account gating:** new users are `pending` until approved; the bootstrap
   admin is a single configured email. A Super Admin cannot reject their own
-  account or another Super Admin, and granting or revoking the Super Admin
-  role requires Super Admin (approval, role assign, and role revoke all
-  enforce this), and approvals, rejections, role changes, and
-  permission/report-grant changes write an `activity` audit entry.
+  account or another Super Admin, only a Super Admin can change a Super
+  Admin account's roles, and no change may leave zero Super Admins (approval,
+  role assign, and role revoke all enforce this), and approvals, rejections,
+  role changes, and permission/report-grant changes write an `activity` audit
+  entry.
 - **Report access:** the users report is admin-only. It is omitted from the
   catalog for other roles, rejected by `run`/`export` before any Firestore
   query, and cannot be granted to non-admin roles through the report matrix.
@@ -84,13 +85,16 @@ Current controls (Firebase runtime):
   (PDFs are converted to DOCX before storage); legacy `.doc` is rejected.
   Templates with unknown placeholders or parse errors are stored inactive and
   cannot be activated.
-- **Transport:** CORS allow-list (`CORS_ORIGINS`), trusted hosts
-  (`ALLOWED_HOSTS`), HSTS in production only (HTTPS itself is enforced by the
-  platform/ingress per `DEPLOYMENT.md`, not by an in-app redirect),
-  and a strict CSP on API responses (Swagger/ReDoc exempt). The static
-  frontend CSP allows only the Firebase Auth loader (`apis.google.com`) and
-  auth frame (`*.firebaseapp.com`, `accounts.google.com`) in addition to
-  `'self'`; production startup warns when `ALLOWED_HOSTS` is still `*`.
+- **Transport:** CORS allow-list (`CORS_ORIGINS`) with an explicit method set
+  (`GET/POST/PATCH/DELETE`) and header set (`Authorization/Content-Type`);
+  trusted hosts (`ALLOWED_HOSTS`), HSTS in production only (HTTPS itself is
+  enforced by the platform/ingress per `DEPLOYMENT.md`, not by an in-app
+  redirect), and a strict CSP on API responses (Swagger/ReDoc exempt). The
+  static frontend CSP is `'self'` plus the Firebase Auth loader
+  (`apis.google.com`), auth frames (`*.firebaseapp.com`,
+  `accounts.google.com`), `style-src 'unsafe-inline'`, and `https:`/`data:`
+  image/font sources; production startup warns when `ALLOWED_HOSTS` or
+  `CORS_ORIGINS` is still `*`.
 - **Observability:** every response carries an `X-Request-ID` that is either a
   safe client value or a generated hex ID, and application logs are JSON lines
   carrying that ID and the event name.
@@ -99,8 +103,9 @@ Current controls (Firebase runtime):
   with a SHA-256 checksum that is verified on every read; they are served only
   through authorised API routes, never through public bucket URLs. Firestore
   rules deny all client access, so a blob id is not a capability.
-- **Deployment:** one backend replica, auth-endpoint rate limiting, and a
-  Firestore backup/retention policy (`DEPLOYMENT.md`).
+- **Deployment:** one backend replica, per-IP rate limiting (a strict cap on
+  mutating `/api/auth/*` plus a looser budget across all other `/api/`
+  routes), and a Firestore backup/retention policy (`DEPLOYMENT.md`).
 - **AI provider data flow:** when `AI_API_URL` is set, refinement and vision
   calls send questionnaire answers, selected document excerpts, and (only for
   embodiments, when `AI_VISION_ENABLED`) downscaled figure images to that
@@ -115,9 +120,10 @@ Known limitations (do not rely on these for security):
 - Firestore Security Rules **do not** replace backend authorization — the
   Admin SDK bypasses them; all checks live in `app/core/security.py` and
   `app/services/projections.py`.
-- The in-app rate limiter covers `/api/auth/*` only and keeps its buckets per
-  worker. Put general request limits at the platform edge (PaaS/WAF/Firebase
-  quotas) before exposing the API publicly.
+- The in-app rate limiter keeps its buckets per worker (per-IP budgets for
+  `/api/auth/*` and for all other `/api/` routes). Put general request limits
+  at the platform edge (PaaS/WAF/Firebase quotas) before exposing the API
+  publicly.
 - The backend assumes a **single instance** (ADR-003); document generation and
   PDF conversion run in-process.
 - Generated patent text is a **draft, not legal advice**; it must not be filed

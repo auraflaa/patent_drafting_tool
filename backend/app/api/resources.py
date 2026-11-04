@@ -1135,6 +1135,12 @@ def submit_questionnaire(patent_id: str, user: dict = Depends(active_user)):
         **{field: questionnaire.get(field) for field in QUESTIONNAIRE_FIELDS},
     }
     create_doc("questionnaire_versions", snapshot)
+    # The missing-field guard above already proved every
+    # REQUIRED_QUESTIONNAIRE_FIELDS entry is filled (same shared predicate as
+    # questionnaire_completion), so completion is definitionally 100% here.
+    # The hardcoded values stay in one place with the guard instead of
+    # round-tripping through questionnaire_completion, which can only ever
+    # return "Not Started"/"In Progress" by design.
     patch_doc(
         "questionnaires",
         questionnaire["id"],
@@ -1678,6 +1684,11 @@ def update_figure(
 
     Screening rejects what is clearly not a drawing; the user may override a
     rejection with a recorded reason. The override is stored, not the pixels.
+
+    Deliberately gated on FILES_UPLOAD (not a drafting permission): reviewers
+    are the uploaders who own the figures, overrides are reason-recorded in
+    the figure row, and every change flows through the same visibility gate
+    (`require_patent`) as the file itself.
     """
     require_patent(patent_id, user)
     ensure_permission(user, "FILES_UPLOAD")
@@ -2849,6 +2860,12 @@ def _status_counts(patents: list[dict]) -> list[dict]:
 
 @router.get("/reports/dashboard")
 def dashboard(user: dict = Depends(active_user)):
+    """Personal dashboard: intentionally available to every approved user.
+
+    Unlike the report catalog/run/export routes this needs no REPORTS_VIEW
+    grant — everyone gets their own action counts. No cross-user data leaks
+    here: every count is computed over `visible_patents(user)` only.
+    """
     patents = visible_patents(user)
     roles = set(user.get("role_codes") or [])
     if {"ADMIN", "SUPER_ADMIN"} & roles:

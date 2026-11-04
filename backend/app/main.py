@@ -38,9 +38,31 @@ def warn_insecure_hosts() -> None:
         )
 
 
+def warn_open_cors() -> None:
+    """Warn when production CORS trusts every origin with credentials.
+
+    `allow_credentials=True` with `CORS_ORIGINS=*` makes every authenticated
+    endpoint readable from any site the victim visits — a CSRF-adjacent
+    exfiltration channel. Browsers fail closed on `*` + credentials, but an
+    explicit origin that an operator pastes carelessly does not.
+    """
+    origins = [
+        value.strip()
+        for value in settings.cors_origins.split(',')
+        if value.strip()
+    ]
+    if settings.environment == 'production' and '*' in origins:
+        logger.warning(
+            "CORS_ORIGINS accepts every origin with credentials in "
+            "production. Set it to the deployed web origin(s) so browsers "
+            "cannot read authenticated responses cross-origin."
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     warn_insecure_hosts()
+    warn_open_cors()
     # Keep startup usable before credentials are configured; /health reports setup status.
     try:
         initialize_firebase()
@@ -76,8 +98,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[x.strip() for x in settings.cors_origins.split(',') if x.strip()],
     allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
+    # The SPA only issues these: GET/POST/PATCH/DELETE with JSON bodies or
+    # multipart uploads (Authorization + Content-Type). Narrowing methods and
+    # headers shrinks what a compromised or malicious origin can attempt.
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
     expose_headers=['Content-Disposition', 'X-Request-ID'],
 )
 app.add_middleware(SecurityHeadersMiddleware)

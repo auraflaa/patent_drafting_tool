@@ -37,10 +37,12 @@ USER appuser
 EXPOSE 8000
 
 # /health returns 503 until Firebase credentials resolve (ADR-005), so the
-# container is "up" but reported unhealthy until backend/.env is complete or
-# the Firebase service-account key is mounted.
+# /health answers 503 while Firebase is unconfigured (by design: the probe is
+# unretried and the app stays usable for setup). The container is "up" in
+# that state too, so the check accepts either code — only a connection
+# failure or a 500 fails it.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status in (200, 503) else 1)"
 
 # No entrypoint script: there are no migrations to apply (Firestore needs
 # none) and no boot-time secret materialisation. Configuration comes from the
