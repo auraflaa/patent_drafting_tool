@@ -168,12 +168,17 @@ function PendingApprovalsPanel() {
       {pending.length === 0 && (
         <EmptyState title="No accounts awaiting approval." />
       )}
-      {pending.map((u) => (
+      {pending.map((u) => {
+        // Nameless rows (synthetic/test imports) still need an identifier.
+        const title = u.full_name || u.email || u.id;
+        return (
         <div key={u.id} className="rounded-lg border border-slate-200 bg-white p-4">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-900">{u.full_name}</p>
-              <p className="text-xs text-slate-500">{u.email}</p>
+              <p className="text-sm font-medium text-slate-900">{title}</p>
+              {u.email && u.email !== title && (
+                <p className="text-xs text-slate-500">{u.email}</p>
+              )}
               {u.organization && (
                 <p className="text-xs text-slate-400">{u.organization}</p>
               )}
@@ -216,7 +221,8 @@ function PendingApprovalsPanel() {
             </button>
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
