@@ -14,13 +14,17 @@ import logging
 import tempfile
 from pathlib import Path
 
+import jinja2
 from docx import Document
 from docx.shared import Pt, RGBColor
+from jinja2.sandbox import SandboxedEnvironment
 
 from app.core.logging import log_event
 from app.services.uploads import UploadValidationError, assert_safe_docx
 
 logger = logging.getLogger(__name__)
+
+_JINJA_ENV = SandboxedEnvironment(undefined=jinja2.StrictUndefined)
 
 DOCX_MIME = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -177,10 +181,23 @@ def render_docx(patent: dict, sections: dict, template: bytes | None) -> bytes:
             from docxtpl import DocxTemplate
 
             document = DocxTemplate(io.BytesIO(template))
-            document.render(context)
+            document.render(context, jinja_env=_JINJA_ENV)
             buffer = io.BytesIO()
             document.save(buffer)
             return buffer.getvalue()
+        except jinja2.UndefinedError as exc:
+            log_event(
+                logger,
+                logging.WARNING,
+                "docx_template_render_failed",
+                error_type=type(exc).__name__,
+            )
+            raise DocumentGenerationError(
+                "The active DOCX template references an unknown "
+                f"placeholder: {exc} Ask an administrator to re-upload it."
+            ) from exc
+        except DocumentGenerationError:
+            raise
         except Exception as exc:
             log_event(
                 logger,

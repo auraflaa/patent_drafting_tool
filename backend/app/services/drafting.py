@@ -268,4 +268,13 @@ def generate_section(
             "The generated draft exceeded the maximum length. Shorten the "
             "questionnaire or regenerate one section at a time."
         )
+    if any(
+        (ord(char) < 32 or ord(char) == 127)
+        and char not in ("\n", "\r", "\t")
+        for char in text
+    ):
+        raise AIGenerationError(
+            "The generated draft contained control characters and was rejected. "
+            "Regenerate the section."
+        )
     return text, used_provider, model

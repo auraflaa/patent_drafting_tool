@@ -12,6 +12,7 @@ from app.core.security import (
     active_user,
     current_user,
     ensure_permission,
+    is_super_admin,
     permissions_for,
 )
 from app.services.projections import log_activity, user_out
@@ -165,6 +166,11 @@ def approve_user(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             f"Unknown role code(s): {', '.join(unknown)}.",
+        )
+    if "SUPER_ADMIN" in role_codes and not is_super_admin(user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only a Super Admin can grant the Super Admin role.",
         )
     target = get_doc("users", user_id)
     write_doc(

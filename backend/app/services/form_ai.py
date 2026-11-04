@@ -343,6 +343,12 @@ def validate_group_output(
         value = value.strip()
         if len(value) > limit:
             raise RefineError(f"Field '{key}' exceeds {limit} characters.")
+        if any(
+            (ord(char) < 32 or ord(char) == 127)
+            and char not in ("\n", "\r", "\t")
+            for char in value
+        ):
+            raise RefineError(f"Field '{key}' must not contain control characters.")
         if key in _short_field_keys(group) and value:
             words = value.split()
             if len(words) > 12 or value.endswith("."):

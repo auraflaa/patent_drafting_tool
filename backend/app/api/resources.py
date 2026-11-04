@@ -37,6 +37,7 @@ from app.core.security import (
     ensure_permission,
     has_permission,
     is_admin,
+    is_super_admin,
 )
 from app.services import blobs
 from app.services import documents as docgen
@@ -2648,6 +2649,11 @@ def upload_template(
         ),
     )
     stored = _blob_guard(lambda: blobs.put_blob(content, docgen.DOCX_MIME))
+    if unknown or parse_error:
+        # A template with unknown placeholders raises at render time
+        # (StrictUndefined) and a template that failed to parse cannot render
+        # at all. Never let either become the active template on upload.
+        activate = False
     if activate:
         for doc in existing:
             if doc.get("is_active"):
@@ -2687,6 +2693,16 @@ def activate_template(template_id: str, user: dict = Depends(active_user)):
             status.HTTP_400_BAD_REQUEST,
             "This template failed to parse and cannot be activated. "
             "Upload a corrected version instead.",
+        )
+    if template.get("unknown_placeholders"):
+        # Unknown placeholders now raise at render time (StrictUndefined), so
+        # activating such a template would break generation for every
+        # document of this type. Fix the variable names first.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "This template uses unknown placeholder(s): "
+            + ", ".join(template.get("unknown_placeholders") or [])
+            + ". Upload a corrected version instead.",
         )
     if not template.get("file_path"):
         raise HTTPException(
@@ -3074,6 +3090,11 @@ def assign_role(target_id: str, payload: dict, user: dict = Depends(active_user)
     role_code = str(payload.get("role_code") or "").upper()
     if role_code not in ALL_ROLE_CODES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown role code.")
+    if role_code == "SUPER_ADMIN" and not is_super_admin(user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only a Super Admin can grant the Super Admin role.",
+        )
     target = get_doc("users", target_id)
     roles = set(target.get("role_codes") or [])
     roles.add(role_code)
@@ -3094,6 +3115,11 @@ def revoke_role(target_id: str, role_code: str, user: dict = Depends(active_user
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "You cannot revoke your own Super Admin role.",
+        )
+    if role_code == "SUPER_ADMIN" and not is_super_admin(user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only a Super Admin can revoke the Super Admin role.",
         )
     if role_code not in roles:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "The user does not hold that role.")
