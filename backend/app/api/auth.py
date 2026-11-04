@@ -70,7 +70,13 @@ def _profile_patch(payload: dict) -> dict:
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 f"{key} must be at most {PROFILE_FIELD_LIMITS[key]} characters.",
             )
-        if key != "bio" and any(ord(char) < 32 or ord(char) == 127 for char in text):
+        # Bios are multi-line; allow newlines and tabs but reject every other
+        # control character, matching the stored-text invariant elsewhere.
+        allowed_controls = {"\n", "\r", "\t"} if key == "bio" else set()
+        if any(
+            (ord(char) < 32 or ord(char) == 127) and char not in allowed_controls
+            for char in text
+        ):
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 f"{key} must not contain control characters.",

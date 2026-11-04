@@ -48,6 +48,7 @@ from app.services import form_ai
 from app.services import form_generation
 from app.services import uploads
 from app.services.form_specs import BY_CODE as FORM_BY_CODE
+from app.services.form_specs import COUNT_KEYS
 from app.services.questionnaire_schema import FIELD_BY_KEY
 from app.services.projections import (
     CALENDAR_EVENT_TYPES,
@@ -236,6 +237,11 @@ INVENTOR_TEXT_LIMITS = {
     "phone": 40,
 }
 MULTILINE_FIELDS = {"address"}
+
+# Counts are caller-supplied template variables (fee-table page/claim totals).
+# Cap them well below any rendering budget; unknown keys are rejected here so
+# a misspelled field surfaces instead of being silently dropped downstream.
+MAX_COUNT_CHARS = 40
 
 
 def _bounded_text(
@@ -446,7 +452,7 @@ def list_teams(user: dict = Depends(active_user)):
 @router.post("/teams", status_code=status.HTTP_201_CREATED)
 def create_team(payload: dict, user: dict = Depends(active_user)):
     ensure_permission(user, "TEAMS_MANAGE")
-    name = (payload.get("team_name") or "").strip()
+    name = _bounded_text(payload.get("team_name"), "team_name", 200)
     if not name:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "team_name is required.")
     team = create_doc(
@@ -1341,6 +1347,14 @@ def create_comment(patent_id: str, payload: dict, user: dict = Depends(active_us
             status.HTTP_400_BAD_REQUEST,
             "Comments are limited to 5,000 characters.",
         )
+    if any(
+        (ord(char) < 32 or ord(char) == 127) and char not in ("\n", "\r", "\t")
+        for char in text
+    ):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Comments must not contain control characters.",
+        )
     comment = create_doc(
         "comments",
         {
@@ -1939,7 +1953,9 @@ def _reap_stale_jobs(patent_id: str) -> None:
         if job.get("status") != "Processing":
             continue
         started = _timestamp(job.get("started_at") or job.get("created_at"))
-        if started is None or started > cutoff:
+        # A job with a missing or garbled timestamp can never prove it is
+        # fresh, so treat it as stale instead of skipping it forever.
+        if started is not None and started > cutoff:
             continue
         log_event(
             logger,
@@ -2316,12 +2332,22 @@ def generate_forms(
             )
     counts: dict[str, str] = {}
     for key, value in (payload.get("counts") or {}).items():
+        if key not in COUNT_KEYS:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Unknown counts field: {key}.",
+            )
         if isinstance(value, str):
             value = value.strip()
         elif isinstance(value, (int, float)) and not isinstance(value, bool):
             value = str(value)
         else:
             continue
+        if len(value) > MAX_COUNT_CHARS:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Counts values are limited to {MAX_COUNT_CHARS} characters.",
+            )
         if value:
             counts[key] = value
     _reap_stale_jobs(patent_id)

@@ -311,3 +311,125 @@ def test_validate_group_output_rejects_control_characters() -> None:
     with pytest.raises(form_ai.RefineError) as exc:
         form_ai.validate_group_output("FORM_METADATA", payload, set())
     assert "control" in str(exc.value).lower()
+
+
+def test_create_team_rejects_overlong_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import resources
+
+    created: list = []
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(
+        resources, "create_doc", lambda *args, **kwargs: created.append(args)
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        resources.create_team(
+            {"team_name": "T" * 201}, {"uid": "u1", "role_codes": ["ADMIN"]}
+        )
+    assert exc.value.status_code == 422
+    assert created == []
+
+
+def test_profile_bio_rejects_control_characters_but_allows_newlines() -> None:
+    from app.api import auth
+
+    with pytest.raises(HTTPException) as exc:
+        auth._profile_patch({"bio": "line one\x00line two"})
+    assert exc.value.status_code == 422
+
+    assert auth._profile_patch({"bio": "line one\nline two"}) == {
+        "bio": "line one\nline two"
+    }
+
+
+def test_create_comment_rejects_control_characters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import resources
+
+    created: list = []
+    monkeypatch.setattr(
+        resources, "require_patent", lambda *args, **kwargs: {"id": "p1"}
+    )
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(
+        resources, "create_doc", lambda *args, **kwargs: created.append(args)
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        resources.create_comment(
+            "p1",
+            {"comment_text": "looks good\x01overall"},
+            {"uid": "u1", "role_codes": ["INNOVATOR"]},
+        )
+    assert exc.value.status_code == 400
+    assert created == []
+
+
+def test_generate_forms_rejects_unknown_counts_and_long_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import resources
+
+    generated: list = []
+    monkeypatch.setattr(
+        resources, "require_patent", lambda *args, **kwargs: {"id": "p1"}
+    )
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(resources, "_assert_forms_agent", lambda *args: None)
+    monkeypatch.setattr(resources, "_assert_generation_allowed", lambda *args: None)
+    monkeypatch.setattr(resources, "query_docs", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        resources,
+        "form_generation",
+        type(
+            "StubGen",
+            (),
+            {
+                "generate_form_set": staticmethod(
+                    lambda *args, **kwargs: generated.append(kwargs)
+                )
+            },
+        )(),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        resources.generate_forms(
+            "p1",
+            {"counts": {"page_count": "9" * 41}},
+            {"uid": "u1", "role_codes": ["ADMIN"]},
+        )
+    assert exc.value.status_code == 400
+
+    with pytest.raises(HTTPException) as exc:
+        resources.generate_forms(
+            "p1",
+            {"counts": {"applicant_name": "Mallory"}},
+            {"uid": "u1", "role_codes": ["ADMIN"]},
+        )
+    assert exc.value.status_code == 400
+    assert generated == []
+
+
+def test_reap_stale_jobs_reaps_jobs_without_timestamps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import resources
+
+    patched: list = []
+    monkeypatch.setattr(
+        resources,
+        "query_docs",
+        lambda *args, **kwargs: [
+            {"id": "j1", "status": "Processing", "patent_application_id": "p1"}
+        ],
+    )
+    monkeypatch.setattr(
+        resources, "patch_doc", lambda *args, **kwargs: patched.append(args)
+    )
+
+    resources._reap_stale_jobs("p1")
+
+    assert [call[0] for call in patched] == ["document_jobs"]
