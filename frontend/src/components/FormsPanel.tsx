@@ -37,6 +37,28 @@ export function FormsPanel({
   const [finalizing, setFinalizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notices, setNotices] = useState<string[]>([]);
+  const [showCounts, setShowCounts] = useState(false);
+  const [counts, setCounts] = useState<Record<string, string>>({});
+
+  /** Attachment counts for the Form 1 fee table. Page counts cannot be
+   * computed (Word does not paginate); the drawings count is derived
+   * server-side from the selected figures. */
+  const COUNT_FIELDS = [
+    { key: "page_count", label: "Spec pages", hint: "e.g. 13" },
+    { key: "claim_count", label: "Claims", hint: "e.g. 04" },
+    { key: "claims_page_count", label: "Claim pages", hint: "e.g. 01" },
+    { key: "abstract_page_count", label: "Abstract pages", hint: "e.g. 01" },
+    { key: "drawing_page_count", label: "Drawing pages", hint: "e.g. 02" },
+  ] as const;
+
+  function countsPayload(): Record<string, Record<string, string>> {
+    const filled: Record<string, string> = {};
+    for (const { key } of COUNT_FIELDS) {
+      const value = (counts[key] ?? "").trim();
+      if (value) filled[key] = value;
+    }
+    return Object.keys(filled).length > 0 ? { counts: filled } : {};
+  }
 
   async function load() {
     try {
@@ -70,7 +92,7 @@ export function FormsPanel({
         `/api/patents/${patentId}/forms/generate`,
         {
           method: "POST",
-          body: JSON.stringify(codes ? { codes } : {}),
+          body: JSON.stringify(codes ? { codes, ...countsPayload() } : countsPayload()),
           timeoutMs: LONG_REQUEST_TIMEOUT_MS,
         },
       );
@@ -202,6 +224,39 @@ export function FormsPanel({
           status: {applicationStatus}).
         </p>
       )}
+
+      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4">
+        <button
+          onClick={() => setShowCounts((v) => !v)}
+          aria-expanded={showCounts}
+          className="text-xs font-medium text-slate-700 hover:underline"
+        >
+          {showCounts ? "Hide" : "Set"} attachment counts (optional)
+        </button>
+        <p className="mt-1 text-xs text-slate-400">
+          Page and claim counts for the Form 1 fee table — Word cannot paginate,
+          so these are entered manually. Drawings are counted automatically
+          ({status.usable_figure_count} selected).
+        </p>
+        {showCounts && (
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {COUNT_FIELDS.map(({ key, label, hint }) => (
+              <label key={key} className="block text-xs text-slate-600">
+                {label}
+                <input
+                  value={counts[key] ?? ""}
+                  onChange={(e) =>
+                    setCounts((c) => ({ ...c, [key]: e.target.value }))
+                  }
+                  placeholder={hint}
+                  inputMode="numeric"
+                  className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                />
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="mb-6 flex items-center justify-between rounded-lg border border-slate-200 bg-white p-4">
         <div>

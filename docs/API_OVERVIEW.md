@@ -112,9 +112,9 @@ Section types: `ABSTRACT`, `BACKGROUND`, `SUMMARY`, `DESCRIPTION`, `CLAIMS`. Stu
 | `GET` | `/api/patents/{patent_id}/form-fields` | `<DRAFTS_VIEW>` + assigned agent/admin | Latest refined group per group code |
 | `PATCH` | `/api/patents/{patent_id}/form-fields` | `<DRAFTS_GENERATE>` + assigned agent/admin | Body `{group, fields}`; edits save as a new version, never touch the questionnaire |
 | `POST` | `/api/patents/{patent_id}/figures/classify` | `<DRAFTS_GENERATE>` + assigned agent/admin | Vision second opinion over figure candidates (needs `AI_VISION_ENABLED`) |
-| `POST` | `/api/patents/{patent_id}/forms/generate` | `<DOCUMENTS_GENERATE>` + assigned agent/admin | Body `{codes?: [...], counts?: {...}}`; renders each form with its own job row |
+| `POST` | `/api/patents/{patent_id}/forms/generate` | `<DOCUMENTS_GENERATE>` + assigned agent/admin | Body `{codes?: [...], counts?: {page_count, claim_count, claims_page_count, abstract_page_count, drawing_page_count}}`; only allowlisted count keys are accepted. `drawing_count` is always derived from the selected figures. Renders each form with its own job row |
 | `GET` | `/api/patents/{patent_id}/forms` | `<DOCUMENTS_VIEW>` | Per-form status, missing fields, usable-figure count, finalize state |
-| `POST` | `/api/patents/{patent_id}/forms/finalize` | `<DOCUMENTS_GENERATE>` + assigned agent/admin | Locks the set; requires all forms, complete fields, ≥1 usable figure |
+| `POST` | `/api/patents/{patent_id}/forms/finalize` | `<DOCUMENTS_GENERATE>` + assigned agent/admin | Locks the set; requires all forms, complete fields, ≥1 usable figure, and no failed job newer than its document |
 | `GET` | `/api/patents/{patent_id}/forms/{code}/download` | `<DOCUMENTS_VIEW>` | Stream the latest DOCX (`<title>-FORM1-v3.docx`) |
 | `GET` | `/api/patents/{patent_id}/forms/{code}/versions` | `<DOCUMENTS_VIEW>` | Version list with embedded/omitted figures |
 
@@ -130,7 +130,7 @@ Refinement groups: `FORM_METADATA`, `FORM_BACKGROUND`, `FORM_EMBODIMENTS`. Form 
 | `GET` | `/api/patents/{patent_id}/files/{file_id}/text` | Visible | Extracted markdown the drafting model reads |
 | `GET` | `/api/patents/{patent_id}/files/{file_id}/figures` | Visible | Figure rows with `usable`, `reason`, captions |
 | `GET` | `/api/patents/{patent_id}/files/{file_id}/figures/{figure_id}/image` | Visible | Streams the figure crop |
-| `PATCH` | `/api/patents/{patent_id}/files/{file_id}/figures/{figure_id}` | `<FILES_UPLOAD>` | Body `{caption?, include_in_drawings?, usable?, display_order?}`; `"usable"` on a rejected figure records "approved by user" |
+| `PATCH` | `/api/patents/{patent_id}/files/{file_id}/figures/{figure_id}` | `<FILES_UPLOAD>` | Body `{caption?, include_in_drawings?, usable?, display_order?}`; `"usable"` on a rejected figure records "approved by user". A user decision is recorded and vision never overrides it |
 | `DELETE` | `/api/patents/{patent_id}/files/{file_id}` | Uploader, admin, or `<FILES_DELETE>` | Delete blob + metadata + extraction rows; `204` |
 
 Image uploads (`.png`, `.jpg`, `.jpeg`) become single figure candidates. Figure rows carry `usable` (`usable`/`rejected`/`unknown`), `reason`, `vision_description`, `include_in_drawings`, `display_order`.

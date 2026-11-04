@@ -658,3 +658,60 @@ def test_refine_group_names_group_and_keys(monkeypatch):
     for key in AI_GROUPS["FORM_EMBODIMENTS"]:
         assert key in seen["text"]
 
+
+def test_unknown_numerals_are_detected():
+    material = "The wiper travels along the rail. Prior art US 9,000: manual."
+    assert form_ai._unknown_numerals({"a": "The fan (700) spins."}, material) == ["(700)"]
+    assert (
+        form_ai._unknown_numerals(
+            {"a": "The wiper (301) travels."}, "The wiper (301) travels."
+        )
+        == []
+    )
+    assert form_ai._unknown_numerals({"a": "15% output gain."}, material) == []
+    assert form_ai._unknown_numerals({"a": None}, material) == []
+
+
+def test_invented_numerals_trigger_repair_then_fallback(monkeypatch):
+    _vision_flags(monkeypatch)
+    calls = {"n": 0}
+
+    def fake_post(messages, max_tokens):
+        calls["n"] += 1
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "fields": {
+                                    "exemplary_scenario": "The hopper (100) feeds grain.",
+                                    "detailed_exemplary_scenario": "Details.",
+                                    "best_working_method": "Mount it.",
+                                },
+                                "used_figures": [],
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(form_ai, "_post_messages", fake_post)
+
+    result = form_ai.refine_group(
+        "p1",
+        {},
+        "FORM_EMBODIMENTS",
+        raw_values={
+            "exemplary_scenario": "A scenario.",
+            "detailed_exemplary_scenario": "Details.",
+            "best_working_method": "Mount it.",
+        },
+    )
+
+    assert calls["n"] == 2  # initial + one repair, then fallback
+    assert result["origin"]["exemplary_scenario"] == "fallback"
+    assert result["fields"]["exemplary_scenario"] == "A scenario."
+    assert any("numeral" in warning for warning in result["warnings"])
+

@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - FORM2 rendering defects: auto-numbering overlap fixed by widening the bracket-number indent, literal `[000NN]` prefixes removed (they doubled with auto-numbering), stray leading period and double-space typo fixed, dangling abstract FIG. 3 line removed, duplicated method dependent claim corrected to "The method of claim 3", redundant summary sentence condensed. Sample-specific boilerplate (wireless handset definitions, AI/ML primers, reference-numeral system description) removed from the template.
-- AI system prompt rewritten around Indian complete-specification conventions (title ≤15 words, field statement, objective background, enablement-standard embodiments, exact reference numerals, single term per element); advantage fields validated as lowercase base verbs.
+- AI system prompt rewritten around Indian complete-specification conventions (title ≤15 words, field statement, objective background, enablement-standard embodiments, exact reference numerals, single term per element); advantage fields validated as lowercase base verbs; user message names the group and keys.
+- Refined values now feed document generation (previously the renderer silently used raw questionnaire values); caller-supplied `counts` are allowlisted and `drawing_count` is always derived; invented reference numerals are rejected deterministically; vision attribution fixed; YOLO scans last pages first; refine has a 100s start-deadline with per-request context cache; finalize blocked by newer failed jobs; user figure decisions immune to vision overrides.
 
 ### Deprecated
 

@@ -29,9 +29,9 @@ statutory forms (`backend/app/templates/forms/`). The sample workbook
 | `AgentInPa` | `config.agent_inpa` | |
 | `AgentMobile` | `config.agent_mobile` | |
 | `GeneratedDate` | `derived.date` | "3rd day of November 2026" |
-| `ClaimCount` | `derived.claims` | Count of rendered claims |
-| `DrawingCount` | `derived.drawings` | Selected usable figures |
-| `PageCount` | manual / blank | python-docx cannot paginate |
+| `ClaimCount` | `derived.claims` or request `counts` | Count of rendered claims |
+| `DrawingCount` | `derived.drawings` (always) | Selected usable figures; never caller-supplied |
+| `PageCount` | request `counts` or blank | python-docx cannot paginate |
 
 **Removed:** hardcoded MIT World Peace University applicant, hardcoded Indian
 nationality/address, hardcoded agent Pranav Bhat / IN-PA 4580 / phone, fixed
@@ -101,6 +101,13 @@ conventions (MPPP/Rule 13): uppercase ≤15-word titles, "This invention
 relates to …" field statements, objective background without admissions
 beyond the material, enablement-standard embodiments with best mode, exact
 reference numerals, and one term per element throughout.
+
+Only `COUNT_KEYS` (`page_count`, `claim_count`, `claims_page_count`,
+`abstract_page_count`, `drawing_page_count`) are accepted from a generate
+request — and `drawing_count` is always overwritten server-side. Nothing a
+caller sends can override questionnaire, refined, party, agent, or derived
+values. A figure a user approves or rejects (`reviewed_by_user`) is never
+touched by vision again.
 
 ## YOLO figure detection
 
