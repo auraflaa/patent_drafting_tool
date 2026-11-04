@@ -45,7 +45,10 @@ export function NotificationBell() {
 
   useEffect(() => {
     loadUnreadCount();
-    const interval = setInterval(loadUnreadCount, 30_000);
+    const interval = setInterval(() => {
+      // Background tabs gain nothing from polling; the count refreshes on focus.
+      if (!document.hidden) loadUnreadCount();
+    }, 30_000);
     return () => clearInterval(interval);
   }, []);
 
@@ -55,8 +58,15 @@ export function NotificationBell() {
         setOpen(false);
       }
     }
+    function onEscape(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
     document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      document.removeEventListener("mousedown", onClickOutside);
+      document.removeEventListener("keydown", onEscape);
+    };
   }, []);
 
   async function toggleOpen() {
@@ -98,6 +108,8 @@ export function NotificationBell() {
       <button
         onClick={toggleOpen}
         aria-label="Notifications"
+        aria-haspopup="true"
+        aria-expanded={open}
         className="relative rounded-md border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-50"
       >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" className="h-4 w-4">

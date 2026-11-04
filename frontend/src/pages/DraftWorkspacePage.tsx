@@ -97,7 +97,7 @@ export default function DraftWorkspacePage() {
       await Promise.all([loadDraft(), loadPatent()]);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to regenerate section",
+        getFriendlyError("DraftWorkspacePage.regenerateSection", err, "Failed to regenerate section"),
       );
     } finally {
       setGeneratingSection(null);
@@ -118,7 +118,7 @@ export default function DraftWorkspacePage() {
         setVersions((v) => ({ ...v, [section]: data }));
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Failed to load version history",
+          getFriendlyError("DraftWorkspacePage.loadVersions", err, "Failed to load version history"),
         );
       }
     }
@@ -176,7 +176,7 @@ export default function DraftWorkspacePage() {
         </p>
       )}
 
-      <div className="mb-6 flex gap-1 border-b border-slate-200">
+      <div className="mb-6 flex gap-1 border-b border-slate-200" role="tablist" aria-label="Draft workspace sections">
         {(
           [
             ["drafting", "AI Drafting"],
@@ -187,6 +187,8 @@ export default function DraftWorkspacePage() {
         ).map(([key, label]) => (
           <button
             key={key}
+            role="tab"
+            aria-selected={tab === key}
             onClick={() => setTab(key)}
             className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
               tab === key
@@ -201,7 +203,7 @@ export default function DraftWorkspacePage() {
 
       {tab === "basic-info" ? (
         // Read-only: the Patent Agent can see everything the Innovator
-        // filled in, but never edits it here (closes open item #13).
+        // filled in, but never edits it here.
         <BasicInfoTab patentId={patentId} editable={false} />
       ) : tab === "questionnaire" ? (
         <QuestionnaireTab patentId={patentId} editable={false} />

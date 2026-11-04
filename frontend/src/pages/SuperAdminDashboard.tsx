@@ -21,7 +21,7 @@ export default function SuperAdminDashboard() {
 
   return (
     <DashboardShell title="Super Admin">
-      <div className="mb-6 flex gap-1 border-b border-slate-200">
+      <div className="mb-6 flex gap-1 border-b border-slate-200" role="tablist" aria-label="Super Admin sections">
         <TabButton active={tab === "pending"} onClick={() => setTab("pending")}>
           Pending Approvals
         </TabButton>
@@ -31,24 +31,19 @@ export default function SuperAdminDashboard() {
         <TabButton active={tab === "users"} onClick={() => setTab("users")}>
           All Users
         </TabButton>
-        {/* NEW — closes open item #24 */}
         <TabButton active={tab === "templates"} onClick={() => setTab("templates")}>
           Templates
         </TabButton>
-        {/* NEW — Phase 9. Which report types (app/api/reports.py's
-            /permissions/matrix) each role may download, independent of
-            the ordinary Role & Permission Matrix's REPORTS_VIEW/
-            REPORTS_DOWNLOAD codes above. */}
+        {/* Report types each role may download, independent of the ordinary
+            Role & Permission Matrix's REPORTS_VIEW/REPORTS_DOWNLOAD codes. */}
         <TabButton
           active={tab === "report-permissions"}
           onClick={() => setTab("report-permissions")}
         >
           Report Download Permissions
         </TabButton>
-        {/* NEW — closes open item #38. Not a tab like the others: it's a
-            real navigation into the shared /admin/patents route (same
-            AdminPatentsPage/AdminPatentDetailPage components Admin uses),
-            not inline content, so it's styled like a tab but is a Link. */}
+        {/* Not a tab like the others: a real navigation into the shared
+            /admin/patents route, styled like a tab but a Link. */}
         <Link
           to="/admin/patents"
           className="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-slate-500 transition hover:text-slate-700"
@@ -77,6 +72,8 @@ function TabButton({
 }) {
   return (
     <button
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
       className={`border-b-2 px-4 py-2 text-sm font-medium transition ${
         active

@@ -224,7 +224,7 @@ export default function AdminPatentDetailPage() {
         }
       />
 
-      <div className="mb-6 flex gap-1 border-b border-slate-200">
+      <div className="mb-6 flex gap-1 border-b border-slate-200" role="tablist" aria-label="Patent sections">
         {(
           [
             ["basic-info", "Basic Information"],
@@ -234,6 +234,8 @@ export default function AdminPatentDetailPage() {
         ).map(([key, label]) => (
           <button
             key={key}
+            role="tab"
+            aria-selected={tab === key}
             onClick={() => setTab(key)}
             className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
               tab === key
@@ -251,8 +253,8 @@ export default function AdminPatentDetailPage() {
       ) : tab === "questionnaire" ? (
         <QuestionnaireTab patentId={patentId} editable={false} />
       ) : (
-        // Admin is one of the two roles (with the assigned Agent) allowed
-        // to manage calendar events server-side — see calendar.py.
+        // Calendar event management is server-gated to the assigned agent
+        // and admins — see the calendar routes in backend/app/api/resources.py.
         <CollaborationPanel patentId={patentId} canManageCalendar={true} />
       )}
     </DashboardShell>

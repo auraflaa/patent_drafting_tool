@@ -1,11 +1,8 @@
-// Shared, reusable Basic Information + Questionnaire tabs, extracted from
-// PatentWorkflowPage.tsx (the Innovator's editable workflow view) so the
-// exact same, already-correct components can be reused read-only for
-// Agent (DraftWorkspacePage) and Admin (AdminPatentDetailPage) — closes
-// open item #13. Every field/panel below was already gated on an
-// `editable` prop before this extraction, so passing `editable={false}`
-// is all a read-only caller needs to do; no new read-only-specific code
-// was written.
+// Shared, reusable Basic Information + Questionnaire tabs. The same
+// components serve the Innovator's editable workflow view and the read-only
+// Agent (DraftWorkspacePage) and Admin (AdminPatentDetailPage) views: every
+// field/panel below is gated on an `editable` prop, so passing
+// `editable={false}` is all a read-only caller needs.
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch, getFriendlyError } from "../lib/api";
 import { LoadingState } from "./LoadingState";
@@ -165,7 +162,7 @@ function ApplicantsPanel({
       await load();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to remove applicant",
+        getFriendlyError("PatentDetailTabs.removeApplicant", err, "Failed to remove applicant"),
       );
     } finally {
       setBusy(false);
@@ -194,7 +191,7 @@ function ApplicantsPanel({
       setApplicants(result);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to reorder applicants",
+        getFriendlyError("PatentDetailTabs.reorderApplicants", err, "Failed to reorder applicants"),
       );
     } finally {
       setBusy(false);
@@ -280,6 +277,7 @@ function ApplicantsPanel({
         >
           <select
             value={form.applicant_type}
+            aria-label="Applicant type"
             onChange={(e) =>
               setForm({
                 ...form,
@@ -297,6 +295,7 @@ function ApplicantsPanel({
           <input
             type="text"
             placeholder="Full name / organization name"
+            aria-label="Full name or organization name"
             value={form.full_name_or_org_name}
             onChange={(e) =>
               setForm({ ...form, full_name_or_org_name: e.target.value })
@@ -306,6 +305,7 @@ function ApplicantsPanel({
           <input
             type="text"
             placeholder="Address"
+            aria-label="Address"
             value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })}
             className="col-span-2 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -313,6 +313,7 @@ function ApplicantsPanel({
           <input
             type="text"
             placeholder="Country"
+            aria-label="Country"
             value={form.country}
             onChange={(e) => setForm({ ...form, country: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -320,6 +321,7 @@ function ApplicantsPanel({
           <input
             type="text"
             placeholder="Postal code"
+            aria-label="Postal code"
             value={form.postal_code}
             onChange={(e) => setForm({ ...form, postal_code: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -327,6 +329,7 @@ function ApplicantsPanel({
           <input
             type="email"
             placeholder="Email"
+            aria-label="Email"
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -334,6 +337,7 @@ function ApplicantsPanel({
           <input
             type="text"
             placeholder="Phone"
+            aria-label="Phone"
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -456,7 +460,7 @@ function InventorsPanel({
       await load();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to remove inventor",
+        getFriendlyError("PatentDetailTabs.removeInventor", err, "Failed to remove inventor"),
       );
     } finally {
       setBusy(false);
@@ -485,7 +489,7 @@ function InventorsPanel({
       setInventors(result);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to reorder inventors",
+        getFriendlyError("PatentDetailTabs.reorderInventors", err, "Failed to reorder inventors"),
       );
     } finally {
       setBusy(false);
@@ -561,6 +565,7 @@ function InventorsPanel({
           <input
             type="text"
             placeholder="Full name"
+            aria-label="Full name"
             value={form.full_name}
             onChange={(e) => setForm({ ...form, full_name: e.target.value })}
             className="col-span-2 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -568,6 +573,7 @@ function InventorsPanel({
           <input
             type="text"
             placeholder="Address"
+            aria-label="Address"
             value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })}
             className="col-span-2 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -575,6 +581,7 @@ function InventorsPanel({
           <input
             type="text"
             placeholder="Country"
+            aria-label="Country"
             value={form.country}
             onChange={(e) => setForm({ ...form, country: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -582,6 +589,7 @@ function InventorsPanel({
           <input
             type="text"
             placeholder="Postal code"
+            aria-label="Postal code"
             value={form.postal_code}
             onChange={(e) => setForm({ ...form, postal_code: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -589,6 +597,7 @@ function InventorsPanel({
           <input
             type="email"
             placeholder="Email"
+            aria-label="Email"
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -596,6 +605,7 @@ function InventorsPanel({
           <input
             type="text"
             placeholder="Phone"
+            aria-label="Phone"
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -718,7 +728,7 @@ export function QuestionnaireTab({
       });
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load questionnaire",
+        getFriendlyError("PatentDetailTabs.loadQuestionnaire", err, "Failed to load questionnaire"),
       );
     }
   }
@@ -736,7 +746,7 @@ export function QuestionnaireTab({
       setVersions(data);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load version history",
+        getFriendlyError("PatentDetailTabs.loadVersions", err, "Failed to load version history"),
       );
     }
   }
@@ -792,7 +802,7 @@ export function QuestionnaireTab({
       setQ(updated);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to submit questionnaire",
+        getFriendlyError("PatentDetailTabs.submitQuestionnaire", err, "Failed to submit questionnaire"),
       );
     } finally {
       setSubmitBusy(false);

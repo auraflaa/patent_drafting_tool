@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiDownload, apiFetch, ApiError, getFriendlyError, LONG_REQUEST_TIMEOUT_MS } from "../lib/api";
+import { apiDownload, apiFetch, getFriendlyError, LONG_REQUEST_TIMEOUT_MS } from "../lib/api";
 import type {
   DocumentGenerationJobOut,
   DocumentOut,
@@ -72,7 +72,9 @@ export function DocumentGenerationPanel({
         }
       );
       if (job.status === "Failed") {
-        setError(getFriendlyError("DocumentGenerationPanel.generate", new ApiError(500, job.error_message ?? "Generation failed"), "Generation failed"));
+        // The backend curates job error messages for display; show the
+        // actual reason instead of mapping a synthetic 500 to generic text.
+        setError(job.error_message?.trim() || "Generation failed. Check the job history and retry.");
       } else {
         onChanged?.();
         await refreshVersionHistory();
@@ -94,14 +96,14 @@ export function DocumentGenerationPanel({
         { method: "POST" }
       );
       if (job.status === "Failed") {
-        setError(getFriendlyError("DocumentGenerationPanel.retry", new ApiError(500, job.error_message ?? "Retry failed"), "Retry failed"));
+        setError(job.error_message?.trim() || "Retry failed. Check the job history and try again.");
       } else {
         onChanged?.();
         await refreshVersionHistory();
       }
       await Promise.all([loadDocuments(), loadJobs()]);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to retry generation");
+      setError(getFriendlyError("DocumentGenerationPanel.retry", err, "Failed to retry generation"));
     } finally {
       setRetrying(null);
     }

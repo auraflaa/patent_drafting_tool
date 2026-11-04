@@ -83,7 +83,7 @@ export function CollaborationPanel({
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white">
-      <div className="flex gap-1 border-b border-slate-200 px-4 pt-2">
+      <div className="flex gap-1 border-b border-slate-200 px-4 pt-2" role="tablist" aria-label="Collaboration sections">
         {(
           [
             ["comments", "Comments"],
@@ -93,6 +93,8 @@ export function CollaborationPanel({
         ).map(([key, label]) => (
           <button
             key={key}
+            role="tab"
+            aria-selected={subTab === key}
             onClick={() => setSubTab(key)}
             className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${
               subTab === key
@@ -188,6 +190,7 @@ function CommentsSection({ patentId }: { patentId: string }) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Add a comment…"
+          aria-label="Add a comment"
           maxLength={5000}
           className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
         />

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiFetch, apiImageUrl, getFriendlyError } from "../lib/api";
 import type { FigureOut, FileOut } from "../lib/types";
 
@@ -13,11 +13,15 @@ export function FiguresStrip({ patentId, file }: { patentId: string; file: FileO
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
+  // Object URLs live in a ref so the unmount cleanup revokes the *current*
+  // set: a bare [] effect would close over the initial (empty) map and leak
+  // every thumbnail. The state copy below is only what React renders.
+  const urlsRef = useRef<Record<string, string>>({});
   useEffect(() => {
+    const urls = urlsRef.current;
     return () => {
       for (const url of Object.values(urls)) URL.revokeObjectURL(url);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function load() {
@@ -40,6 +44,7 @@ export function FiguresStrip({ patentId, file }: { patentId: string; file: FileO
       }
       setUrls((prev) => {
         for (const url of Object.values(prev)) URL.revokeObjectURL(url);
+        urlsRef.current = next;
         return next;
       });
     } catch (err) {

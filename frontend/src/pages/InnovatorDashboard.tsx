@@ -95,6 +95,7 @@ export default function InnovatorDashboard() {
               <input
                 type="text"
                 placeholder="New team name"
+                aria-label="New team name"
                 value={newTeamName}
                 onChange={(e) => setNewTeamName(e.target.value)}
                 className="min-w-0 flex-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
@@ -141,12 +142,12 @@ function TeamPanel({
   async function load() {
     setError(null);
     try {
-      const [teamData, allPatents] = await Promise.all([
+      const [teamData, teamPatents] = await Promise.all([
         apiFetch<TeamDetailOut>(`/api/teams/${teamId}`),
-        apiFetch<PatentOut[]>("/api/patents"),
+        apiFetch<PatentOut[]>(`/api/patents?team_id=${encodeURIComponent(teamId)}`),
       ]);
       setTeam(teamData);
-      setPatents(allPatents.filter((p) => p.team_id === teamId));
+      setPatents(teamPatents);
     } catch (err) {
       setError(getFriendlyError("InnovatorDashboard.catch3", err, "Failed to load team"));
     }
@@ -253,6 +254,7 @@ function TeamPanel({
           <input
             type="email"
             placeholder="colleague@example.com"
+            aria-label="Team member email"
             value={memberEmail}
             onChange={(e) => setMemberEmail(e.target.value)}
             className="min-w-0 flex-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
@@ -281,6 +283,7 @@ function TeamPanel({
           <input
             type="text"
             placeholder="Invention title"
+            aria-label="Invention title"
             value={newPatentTitle}
             onChange={(e) => setNewPatentTitle(e.target.value)}
             className="min-w-0 flex-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"

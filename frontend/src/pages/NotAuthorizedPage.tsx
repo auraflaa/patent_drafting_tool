@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { homePathFor } from "../lib/roles";
 
@@ -13,12 +14,12 @@ export default function NotAuthorizedPage() {
           Your account doesn't have permission to view this page.
         </p>
         <div className="mt-6 flex justify-center gap-3">
-          <a
-            href={home}
+          <Link
+            to={home}
             className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
           >
             Go to my dashboard
-          </a>
+          </Link>
           <button
             onClick={logout}
             className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"

@@ -1,7 +1,5 @@
-// Admin route tree — user approvals belong to Super Admin only per spec
-// (see handover §2/§3.1). Templates management (closes open item #24) and
-// the read-only All Patents view (closes open item #13) are Admin-scoped
-// workflows; more land here as later phases add features.
+// Admin route tree: user approvals are Super Admin-only; templates
+// management and the read-only All Patents view are Admin-scoped.
 
 import { Link } from "react-router-dom";
 import { DashboardShell } from "../components/DashboardShell";

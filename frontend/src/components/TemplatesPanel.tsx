@@ -1,8 +1,7 @@
-// Templates admin panel (NEW — closes open item #24 from the handover:
-// there was previously no Templates UI and no real merging). Lets
-// Admin/Super Admin upload a .docx or .pdf per document_type, see the full
-// version history, activate an older version, or delete a non-active one.
-// PDFs are converted to Word on the server before they are stored.
+// Templates admin panel. Lets Admin/Super Admin upload a .docx or .pdf per
+// document_type, see the full version history, activate an older version,
+// or delete a non-active one. PDFs are converted to Word on the server
+// before they are stored.
 //
 // The uploaded file is the source of truth for layout/letterhead — this
 // UI only manages which file is active per document_type; the actual
@@ -173,6 +172,7 @@ export function TemplatesPanel() {
         <div className="flex flex-wrap items-center gap-3">
           <select
             value={selectedType}
+            aria-label="Document type"
             onChange={(e) => setSelectedType(e.target.value)}
             className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
           >
@@ -189,6 +189,7 @@ export function TemplatesPanel() {
               ref={fileInputRef}
               type="file"
               accept=".docx,.pdf"
+              aria-label="Upload template file"
               disabled={uploading}
               className="hidden"
               onChange={(e) => {
