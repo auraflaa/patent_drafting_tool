@@ -554,6 +554,7 @@ def available_agents(user: dict = Depends(active_user)):
 @router.get("/patents")
 def list_patents(
     team_id: str | None = Query(default=None),
+    limit: int = Query(default=1000, ge=1, le=1000),
     user: dict = Depends(active_user),
 ):
     ensure_permission(user, "PATENTS_VIEW")
@@ -564,7 +565,10 @@ def list_patents(
         # as they do when creating a patent into them.
         _visible_team(team_id, user)
         patents = [doc for doc in patents if doc.get("team_id") == team_id]
-    return [patent_out(doc) for doc in sort_docs(patents, "created_at", reverse=True)]
+    # Newest first; the cap bounds one response for very large tenants
+    # (the UI renders the whole list, so it fetches the whole list).
+    patents = sort_docs(patents, "created_at", reverse=True)[:limit]
+    return [patent_out(doc) for doc in patents]
 
 
 @router.post("/patents", status_code=status.HTTP_201_CREATED)
@@ -1544,11 +1548,15 @@ def _download_response(
 
 
 @router.get("/patents/{patent_id}/files")
-def list_files(patent_id: str, user: dict = Depends(active_user)):
+def list_files(
+    patent_id: str,
+    limit: int = Query(default=1000, ge=1, le=1000),
+    user: dict = Depends(active_user),
+):
     require_patent(patent_id, user)
     users = _users_by_id()
     files = query_docs("files", filters=[("patent_application_id", "==", patent_id)])
-    files = sort_docs(files, "created_at", reverse=True)
+    files = sort_docs(files, "created_at", reverse=True)[:limit]
     return [file_out(doc, users.get(doc.get("uploaded_by"))) for doc in files]
 
 
@@ -3070,6 +3078,28 @@ def report_catalog(user: dict = Depends(active_user)):
 
 
 @router.get("/reports/{report_type}/export")
+def _csv_stream(rows: list[dict]):
+    """Yield a CSV body row by row.
+
+    The rows themselves are already materialised, but the serialised body
+    of a large export no longer sits whole in memory next to them.
+    """
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=list(rows[0].keys()))
+    writer.writeheader()
+    yield buffer.getvalue()
+    buffer.seek(0)
+    buffer.truncate(0)
+    for row in rows:
+        # Spreadsheet apps treat a leading =, +, -, or @ as a formula. A
+        # user-controlled title or name must not execute when an admin opens
+        # the exported file.
+        writer.writerow({key: _csv_safe(value) for key, value in row.items()})
+        yield buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate(0)
+
+
 def export_report(report_type: str, user: dict = Depends(active_user)):
     ensure_permission(user, "REPORTS_VIEW")
     if report_type not in REPORT_TYPE_NAMES:
@@ -3083,20 +3113,17 @@ def export_report(report_type: str, user: dict = Depends(active_user)):
             "Your role is not permitted to download this report.",
         )
     rows = _report_rows(report_type, user)
-    buffer = io.StringIO()
-    if rows:
-        writer = csv.DictWriter(buffer, fieldnames=list(rows[0].keys()))
-        writer.writeheader()
-        # Spreadsheet apps treat a leading =, +, -, or @ as a formula. A
-        # user-controlled title or name must not execute when an admin opens
-        # the exported file.
-        writer.writerows(
-            {key: _csv_safe(value) for key, value in row.items()} for row in rows
+    headers = _content_disposition(f"{report_type}.csv")
+    if not rows:
+        return Response(
+            content="",
+            media_type="text/csv; charset=utf-8",
+            headers=headers,
         )
-    return Response(
-        content=buffer.getvalue(),
+    return StreamingResponse(
+        _csv_stream(rows),
         media_type="text/csv; charset=utf-8",
-        headers=_content_disposition(f"{report_type}.csv"),
+        headers=headers,
     )
 
 

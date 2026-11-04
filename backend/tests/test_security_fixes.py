@@ -454,9 +454,78 @@ def test_list_patents_filters_by_team(
     )
     user = {"uid": "u1", "role_codes": ["INNOVATOR"]}
 
-    mine = resources.list_patents(team_id="t1", user=user)
+    mine = resources.list_patents(team_id="t1", limit=1000, user=user)
     assert [doc["id"] for doc in mine] == ["p1"]
-    # NOTE: called with an explicit None because FastAPI only resolves the
-    # Query() default inside real requests; direct calls see the default.
-    everything = resources.list_patents(team_id=None, user=user)
+    # NOTE: called with explicit values because FastAPI only resolves the
+    # Query() defaults inside real requests; direct calls see the default.
+    everything = resources.list_patents(team_id=None, limit=None, user=user)
     assert [doc["id"] for doc in everything] == ["p1", "p2"]
+
+
+def test_list_patents_limit_bounds_the_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import resources
+
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(
+        resources,
+        "visible_patents",
+        lambda user: [
+            {
+                "id": f"p{index}",
+                "invention_title": f"T{index}",
+                "created_at": f"2026-01-{index + 1:02d}T00:00:00+00:00",
+            }
+            for index in range(5)
+        ],
+    )
+    user = {"uid": "u1", "role_codes": ["INNOVATOR"]}
+
+    page = resources.list_patents(team_id=None, limit=2, user=user)
+    assert [doc["id"] for doc in page] == ["p4", "p3"]  # newest first
+
+    everything = resources.list_patents(team_id=None, limit=1000, user=user)
+    assert [doc["id"] for doc in everything] == ["p4", "p3", "p2", "p1", "p0"]
+
+
+def test_export_report_streams_csv_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The export must stream (bounded memory) with byte-identical output."""
+    import asyncio
+
+    from fastapi.responses import StreamingResponse
+
+    from app.api import resources
+
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
+    monkeypatch.setattr(resources, "_assert_report_access", lambda *args: None)
+    monkeypatch.setattr(
+        resources, "can_download_report", lambda *args, **kwargs: True
+    )
+    monkeypatch.setattr(
+        resources,
+        "_report_rows",
+        lambda *args, **kwargs: [
+            {"title": "Normal", "owner": "alice@example.com"},
+            {"title": "=cmd|'/c calc'!A0", "owner": "mallory@example.com"},
+        ],
+    )
+
+    response = resources.export_report(
+        "patent_applications", user={"uid": "admin", "role_codes": ["ADMIN"]}
+    )
+
+    assert isinstance(response, StreamingResponse)
+
+    async def _collect():
+        return b"".join(
+            [
+                chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
+                async for chunk in response.body_iterator
+            ]
+        )
+
+    body = asyncio.run(_collect()).decode("utf-8")
+    assert "Normal" in body
+    # Formula cells stay neutralised, exactly as before the streaming change.
+    assert "'=cmd" in body
