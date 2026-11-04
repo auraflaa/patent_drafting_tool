@@ -94,8 +94,13 @@ selected figures only; with none selected the sheet is marked incomplete.
 
 The AI rephrases raw questionnaire answers into the long-form fields above.
 It never writes claims, abstract, statutory boilerplate, applicant/inventor
-names, dates, or agent details. Short keyword fields may be AI-suggested but
-are validated as noun phrases.
+names, dates, or agent details. Short keyword fields are validated as noun
+phrases; advantage fields as lowercase base-form verbs (the template renders
+"is to <value>"). The system prompt encodes Indian complete-specification
+conventions (MPPP/Rule 13): uppercase ≤15-word titles, "This invention
+relates to …" field statements, objective background without admissions
+beyond the material, enablement-standard embodiments with best mode, exact
+reference numerals, and one term per element throughout.
 
 ## YOLO figure detection
 

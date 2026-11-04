@@ -52,6 +52,48 @@ def test_validate_rejects_wrong_keys_lengths_and_slogans():
         )
 
 
+def _background_raw(**overrides):
+    base = {
+        "one_line_about_field": "Solar arrays operate in dusty environments.",
+        "two_lines_about_domain": "Photovoltaic systems lose output when soiled.",
+        "three_lines_about_area": "Panel maintenance requires regular cleaning.",
+        "four_lines_about_problem": "Dust accumulates and output drops.",
+        "four_lines_about_solution": "A wiper travels along rails to clean panels.",
+        "advantage1": "reduce cleaning labor",
+        "advantage2": "improve energy output",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_validate_advantage_accepts_lowercase_verb_phrase():
+    payload = {"fields": _background_raw(), "used_figures": []}
+
+    fields, _ = form_ai.validate_group_output("FORM_BACKGROUND", payload, set())
+
+    assert fields["advantage1"] == "reduce cleaning labor"
+
+
+def test_validate_advantage_rejects_uppercase_with_period():
+    payload = {
+        "fields": _background_raw(advantage1="Reduces cleaning labor."),
+        "used_figures": [],
+    }
+
+    with pytest.raises(form_ai.RefineError):
+        form_ai.validate_group_output("FORM_BACKGROUND", payload, set())
+
+
+def test_validate_advantage_rejects_uppercase_without_period():
+    payload = {
+        "fields": _background_raw(advantage1="Reduces cleaning labor"),
+        "used_figures": [],
+    }
+
+    with pytest.raises(form_ai.RefineError):
+        form_ai.validate_group_output("FORM_BACKGROUND", payload, set())
+
+
 def test_validate_markers_only_in_embodiments():
     fields = {
         "exemplary_scenario": "Morning.\n\n[[FIG:fig-1]]",
@@ -574,4 +616,45 @@ def test_classify_skips_user_reviewed_rows(monkeypatch):
 
     assert result["classified"] == 0
     assert patched == {}
+
+
+def test_refine_group_names_group_and_keys(monkeypatch):
+    from app.services.questionnaire_schema import AI_GROUPS
+
+    _vision_flags(monkeypatch)
+    seen = {}
+
+    def fake_post(messages, max_tokens):
+        seen["text"] = messages[1]["content"]
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '{"fields": {"exemplary_scenario": "A scenario.", '
+                            '"detailed_exemplary_scenario": "Details.", '
+                            '"best_working_method": "Mount it."}, '
+                            '"used_figures": []}'
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(form_ai, "_post_messages", fake_post)
+
+    form_ai.refine_group(
+        "p1",
+        {},
+        "FORM_EMBODIMENTS",
+        raw_values={
+            "exemplary_scenario": "A scenario.",
+            "detailed_exemplary_scenario": "Details.",
+            "best_working_method": "Mount it.",
+        },
+    )
+
+    assert "FORM_EMBODIMENTS" in seen["text"]
+    for key in AI_GROUPS["FORM_EMBODIMENTS"]:
+        assert key in seen["text"]
 

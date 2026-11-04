@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - YOLO figure detection (Apache-2.0 DocLayNet weights, pluggable via `YOLO_MODEL_PATH`), deterministic screening, direct image uploads as figures, figure review UI with captions and use-anyway.
 - Figure endpoints (text/figures/image/PATCH) and form endpoints (catalog/refine/form-fields/generate/status/finalize/classify) documented in `docs/API_OVERVIEW.md`; new env vars in `backend/.env.example`.
 
+### Fixed
+
+- FORM2 rendering defects: auto-numbering overlap fixed by widening the bracket-number indent, literal `[000NN]` prefixes removed (they doubled with auto-numbering), stray leading period and double-space typo fixed, dangling abstract FIG. 3 line removed, duplicated method dependent claim corrected to "The method of claim 3", redundant summary sentence condensed. Sample-specific boilerplate (wireless handset definitions, AI/ML primers, reference-numeral system description) removed from the template.
+- AI system prompt rewritten around Indian complete-specification conventions (title ≤15 words, field statement, objective background, enablement-standard embodiments, exact reference numerals, single term per element); advantage fields validated as lowercase base verbs.
+
 ### Deprecated
 
 - Legacy section-wise AI drafts (`ABSTRACT`…`CLAIMS`) and the single-document generation path remain for existing records but are superseded by refinement + forms. They keep their per-section draft-only warnings; generated forms carry one end-of-document disclosure instead.

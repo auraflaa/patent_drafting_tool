@@ -275,6 +275,32 @@ def test_caller_counts_cannot_override_authoritative_values(profile) -> None:
     assert "not_a_variable" not in context
 
 
+def test_form2_has_no_sample_specific_prose() -> None:
+    """The reference pack's software-system prose must not ship in filings."""
+    doc = Document(TEMPLATES / "forms" / "FORM2.docx")
+    text = "\n".join(paragraph.text for paragraph in doc.paragraphs)
+    for phrase in (
+        "wireless handset",
+        "Autonomous Systems",
+        "environment 100",
+        "remote device103",
+        "Natural language processing is concerned",
+        "Deep learning is a subset",
+        "Machine Learning Algorithms",
+    ):
+        assert phrase not in text, f"sample-specific prose remains: {phrase!r}"
+
+
+def test_form2_method_claim_references_the_method() -> None:
+    """The method dependent claim must not copy the system claim."""
+    doc = Document(TEMPLATES / "forms" / "FORM2.docx")
+    texts = [" ".join(p.text.split()) for p in doc.paragraphs]
+    system_claims = [t for t in texts if t.startswith("The system of claims 1,")]
+    method_claims = [t for t in texts if t.startswith("The method of claim 3,")]
+    assert len(system_claims) == 1, system_claims
+    assert len(method_claims) == 1, method_claims
+
+
 def test_seven_inventors_render(profile) -> None:
     questionnaire = dict(profile["questionnaire"])
     profile_inventors = [
