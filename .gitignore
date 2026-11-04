@@ -38,6 +38,16 @@ yarn-error.log*
 # --- Local reference clones (never commit; see CONTRIBUTING.md) ---
 ref-repos/
 
+# --- Local dev scripts (never commit) ---
+start.bat
+scripts/start.bat
+
+# --- Model weights (never commit; mount or download per AGENTS.md) ---
+*.onnx
+*.pt
+*.ckpt
+*.safetensors
+
 # --- OS / editors ---
 .DS_Store
 Thumbs.db
