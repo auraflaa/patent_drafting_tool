@@ -100,3 +100,19 @@ The product needs:
   scattered lists.
 - The old five-section AI generation path is deprecated once the form path is
   verified; old documents remain downloadable.
+
+## Prompt-security posture (added after review)
+
+- Delimiters (`BEGIN/END INVENTOR ...`, `BEGIN/END EXTRACTED ...`) are
+  advisory only: a capable instruction-following model can still obey
+  embedded instructions. They exist to reduce accidents, not to enforce.
+- Enforcement lives in code: sandboxed rendering with `StrictUndefined`,
+  output validation with repair-or-fallback (`validate_group_output`),
+  reference-numeral checks, fail-closed unknown figure markers, and the
+  warnings surfaced on every refined row. The system prompt is not a
+  security boundary.
+- Figure aliases are row-id derived and stable across re-renders; stored
+  refined text keeps resolving after uploads and deletions. `used_figures`
+  stays audit metadata — the drawings sheet embeds every user-selected
+  figure, because the include toggles in the review UI (not model
+  placement hints) are the source of truth for what ships.

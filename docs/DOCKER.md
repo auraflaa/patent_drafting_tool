@@ -29,12 +29,15 @@ CMD ["gunicorn", "app.main:app",
      "--worker-class", "uvicorn.workers.UvicornWorker",
      "--workers", "2",
      "--bind", "0.0.0.0:8000",
-     "--access-logfile", "-", "--error-logfile", "-", "--timeout", "120"]
+     "--access-logfile", "-", "--error-logfile", "-", "--timeout", "240"]
 ```
 
 - `EXPOSE 8000`; `HEALTHCHECK` hits `http://localhost:8000/health` (30 s
-  interval, 15 s start period). The container stays **unhealthy** until
-  Firebase credentials resolve, because `/health` returns `503` until then.
+  interval, 15 s start period). `/health` answers `200` when Firebase is
+  reachable and `503` while it is still unconfigured — the check accepts
+  either as "up", because the probe is unretried by design and the app stays
+  usable for setup. The 240 s worker timeout covers a conversion plus
+  extraction on a long filing (the client waits up to 180 s for an upload).
 - Worker count is two on purpose: a PDF conversion or a large blob write
   occupies a worker for its duration, and the deployment assumes one backend
   replica (ADR-003).

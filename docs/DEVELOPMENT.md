@@ -24,11 +24,19 @@ npm run dev
 - Core: `core/config.py` (settings), `core/firebase.py` (lazy Admin SDK init),
   `core/security.py` (`current_user`, `active_user`, `is_admin`,
   `is_super_admin`, `ensure_permission`).
-- Services: `repository.py` (thin Firestore CRUD/query helpers),
-  `projections.py` (REST shapes + visibility), `rbac.py` (role/permission
-  catalog and overrides), `blobs.py` (gzip documents in Firestore), `uploads.py`
-  (extension/sniffing/ZIP guards), `drafting.py` (stub/OpenAI-compatible text),
-  `documents.py` (DOCX assembly, PDF→DOCX import).
+- Services: `repository.py` (thin Firestore CRUD/query helpers, transactional
+  counters), `projections.py` (REST shapes + visibility), `rbac.py`
+  (role/permission catalog and overrides), `blobs.py` (gzip documents in
+  Firestore), `uploads.py` (extension/sniffing/ZIP guards), `drafting.py`
+  (legacy stub/OpenAI-compatible section drafts), `form_ai.py` (grouped AI
+  refinement with validation/repair, optional vision), `form_generation.py`
+  (per-form jobs, figure selection, finalize gate), `forms.py` (deterministic
+  sandboxed form renderer), `form_specs.py` (five form specs),
+  `questionnaire_schema.py` (28-field registry), `documents.py` (DOCX
+  assembly, PDF→DOCX import), `extraction_store.py` (extraction/figure rows,
+  drafting context), `ingestion.py` (PDF/DOCX/PPTX/text/image parsing),
+  `figure_detection.py` (optional YOLO DocLayNet detector),
+  `figure_quality.py` (deterministic figure screening).
 - Guards: `active_user` → `ensure_permission("<CODE>")` and/or
   `require_roles(*codes)` / `is_admin()`; visibility via
   `services/projections.py` (`patent_visible`, `require_patent`).
@@ -62,7 +70,7 @@ npm run dev
 | `backend/` | `python -m pytest -q` | Offline test suite |
 | `backend/` | `gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:8000` | Prod serve (Docker CMD; Linux only) |
 | `frontend/` | `npm run dev` | Dev server `:5173` |
-| `frontend/` | `npm run lint` | `eslint .` (advisory until configured) |
+| `frontend/` | `npm run lint` | `eslint .` (required gate) |
 | `frontend/` | `npm run build` | `tsc -b && vite build` |
 | `frontend/` | `npm run preview` | Preview `dist/` |
 | Root | `docker compose up --build` | Backend + frontend images (Firebase external) |
@@ -91,16 +99,26 @@ npm run dev
   instead of reaching the network.
 - `backend/tests/test_smoke.py` asserts:
   - the app boots and `/health` reports degraded without credentials;
-  - every path the React client calls is mounted (`CONTRACT_PATHS`);
+  - every path the React client calls is mounted (`CONTRACT_PATHS`,
+    including the forms/refine/classify and file-text/figure surfaces);
   - the RBAC catalog is internally consistent;
   - stub drafting always carries the not-legal-advice warning;
   - DOCX assembly produces a non-empty document.
+- Focused suites sit beside it: `test_form_ai.py` (refinement validation,
+  repair, numeral-invention guard, vision fallback), `test_forms.py`
+  (golden statutory renders), `test_form_generation.py` (five-form sets,
+  finalize gate), `test_ingestion.py` + `test_extraction_store.py`
+  (offline extraction via an OpenDataLoader stub, context budgets),
+  `test_figure_detection.py` (stub ONNX session, screening), plus guard,
+  rate-limit, repository, projections, security-fix, version-race, and
+  static-config suites. Total: ~200 tests, all offline.
 - Live Firestore/Auth behaviour, real blob writes, and PDF conversion fidelity
   are **not** in pytest. Verify them with the manual checklist in
   `backend/README.md` §7.
-- Frontend: no unit runner yet. Verify with `npm run build` (type-check) +
-  manual walkthroughs per role. Adding `vitest` is a welcome `help wanted`
-  contribution (document it here in the same PR).
+- Frontend: no unit runner yet. Verify with `npm run lint` (required),
+  `npm run build` (type-check + bundle) and manual walkthroughs per role.
+  Adding `vitest` is a welcome `help wanted` contribution (document it here
+  in the same PR).
 
 ## 6. Common errors
 
@@ -116,7 +134,7 @@ npm run dev
 | `tsc` unused-var errors | `noUnusedLocals` | Delete unused imports/params |
 | PDF upload returns `400` | Damaged, encrypted, or over 100 pages | Re-export the PDF, remove its password, or upload a DOCX |
 | `413` naming the compression limit | The gzip payload exceeds 900 KB, so it cannot fit one Firestore document | Upload a smaller file or split it |
-| | `429 Too Many Requests` | Auth rate limit exceeded | Wait, or set AUTH_RATE_LIMIT_PER_MINUTE higher / set FORWARDED_ALLOW_IPS to your proxy |
+| | `429 Too Many Requests` | Auth or API rate limit exceeded | Wait, or raise `AUTH_RATE_LIMIT_PER_MINUTE` / `API_RATE_LIMIT_PER_MINUTE`, or set FORWARDED_ALLOW_IPS to your proxy |
 
 ## 7. Debugging tips
 
@@ -137,23 +155,35 @@ npm run dev
 
 ## 8. Performance notes
 
-- Firestore list helpers cap at 100–500 docs. For large tenants, add query
-  filters or pagination rather than loading everything and filtering in Python.
-- `FullCalendar` is the heaviest frontend dep; calendar pages are route-split,
-  so keep it out of the login bundle.
+- Firestore list helpers cap at 1,000 docs (`MAX_QUERY_LIMIT`); the two
+  biggest user-facing lists (`GET /api/patents`, `GET .../files`) additionally
+  take a `limit` (default/max 1000), and report CSVs stream row by row, so one
+  response cannot balloon. For larger tenants, prefer query filters (e.g.
+  `?team_id=`) over raising caps.
+- `FullCalendar` is the heaviest frontend dep; every page (including calendar)
+  is route-split with `React.lazy`, so keep it out of the login bundle.
 - The backend Docker image stays small: there is no office suite, and PDF
-  import is the pure-Python `pdf2docx` dependency.
-- Document generation and PDF conversion run in-process; the deployment
-  assumes one backend replica (ADR-003).
+  import is the pure-Python `pdf2docx` dependency (extraction needs a JRE for
+  OpenDataLoader — see `Dockerfile`).
+- Document generation, PDF conversion, extraction, and AI batches run
+  in-process on two gunicorn workers; the deployment assumes one backend
+  replica (ADR-003). Bind per-request work with the existing timeouts and
+  budgets (`--timeout 240`, `BATCH_DEADLINE_SECONDS`) rather than adding
+  workers.
 
 ## 9. Rate limiting
 
-`backend/app/core/ratelimit.py` implements a sliding-window rate limiter on
-`/api/auth/*` routes:
+`backend/app/core/ratelimit.py` implements in-memory sliding windows:
 
-- Default: `AUTH_RATE_LIMIT_PER_MINUTE=60` (set `0` to disable)
+- Strict cap on mutating `/api/auth/*`: `AUTH_RATE_LIMIT_PER_MINUTE=60`
+  (set `0` to disable).
+- Looser per-IP budget across all other `/api/` routes:
+  `API_RATE_LIMIT_PER_MINUTE=300` (set `0` to disable) — covers draft
+  generation, AI refinement, uploads, and exports, the paid-quota and CPU
+  hotspots.
 - Exempt paths: `/api/auth/me` and `/api/auth/logout` (authenticated polling
-  must never be rate-limited)
+  must never be rate-limited), plus framework paths (`/`, `/health`, `/docs`,
+  `/redoc`, `/openapi.json`) for the API budget.
 - The limiter keys on `X-Forwarded-For`; set `FORWARDED_ALLOW_IPS` to your
   proxy (e.g. `*` on Cloud Run) so every user gets their own bucket rather
   than sharing the proxy IP. Without this, every user shares one limit.
@@ -175,6 +205,14 @@ variables:
 All three must be set together; providing only one or two raises a clear
 error. When unset, the stub provider returns a clearly labelled placeholder
 (no network calls).
+
+Refinement and vision add three more knobs (`app/services/form_ai.py`):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AI_VISION_ENABLED` | off | Allow figure images into the embodiments refinement prompt (capped count/size) |
+| `AI_VISION_MAX_IMAGES` / `AI_VISION_MAX_EDGE_PX` | 3 / 512 | Vision cost guard per request |
+| `YOLO_MODEL_PATH` | empty (off) | ONNX DocLayNet weights for figure detection; empty means embedded images only |
 
 ## 11. Session persistence
 

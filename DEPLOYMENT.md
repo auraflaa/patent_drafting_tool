@@ -201,9 +201,12 @@ touching the backend.
 
 ## 8. Backups and retention
 
-- Firestore: enable scheduled backups (or a managed export) and test a
-  restore. Firestore has no `pg_dump`. Backups cover the `blobs` collection
-  too, so stored documents are protected by the same schedule.
+- Firestore: enable scheduled backups with point-in-time recovery (PITR) and
+  test a restore at least quarterly — an untested backup is a hope, not a
+  plan. Firestore has no `pg_dump`. Backups cover the `blobs` collection
+  too, so stored documents are protected by the same schedule. Suggested
+  posture: daily scheduled backups with a 7-day retention, PITR enabled for
+  the gaps between them, and a restore drill recorded with its date.
 - Firebase Authentication: user records are managed by Firebase; document
   the export/recovery process you rely on.
 - Generated drafts and documents are drafting aids. Retain them according to

@@ -133,14 +133,17 @@ As **Admin/Super Admin**:
 As **Patent Agent**:
 
 5. `/agent` → accept the assignment.
-6. `/agent/patents/:id/draft` → **Generate** a `Summary` section → confirm a version appears.
-7. Generate a DOCX document → confirm download works. PDF output is not offered: open the DOCX and export a PDF from your word processor if you need one.
-8. Upload a supporting file (a PDF arrives as DOCX), download it, then delete it.
+6. `/agent/patents/:id/draft` → **Generate** a `Summary` section → confirm a version appears. Legacy drafts stay downloadable; the current flow is form refinement next.
+7. **Refine** (`Refine` panel → refine all groups) → confirm AI or stub values appear with per-group versions. Without `AI_*` keys the stub keeps raw answers.
+8. **Figures** (`Files` → upload a drawing-rich PDF or image, open the figure strip) → caption/approve figures.
+9. **Forms** (`Statutory forms` → Generate) → confirm FORM1/2/3/5 + Drawings render → **Finalize** → download FORM2.
+10. Generate a legacy DOCX document → confirm download works. PDF output is not offered: open the DOCX and export a PDF from your word processor if you need one.
+11. Upload a supporting file (a PDF arrives as DOCX), download it, then delete it.
 
 As **Admin**:
 
-9. `/admin` → upload a `.docx` template → activate it.
-10. `/innovator/reports` or `/admin/reports` → confirm dashboard counts move and a CSV export downloads.
+12. `/admin` → upload a `.docx` (or `.pdf`) template → confirm it activates; upload one with a bad `{{ PLACEHOLDER }}` → confirm it stays inactive and cannot be activated.
+13. `/innovator/reports` or `/admin/reports` → confirm dashboard counts move and a CSV export downloads.
 
 ## 8. Troubleshooting
 

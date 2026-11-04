@@ -17,7 +17,7 @@ Conventions:
 |---|---|---|---|
 | `GET` | `/` | No | Service info `{name, version, docs, health}` |
 | `GET` | `/health` | No | Firestore probe; `200 ok/connected` or `503 degraded` |
-| `GET` | `/api/config/capabilities` | No | Runtime limits: `{deployment_target, max_upload_size_bytes, max_request_body_bytes}` |
+| `GET` | `/api/config/capabilities` | No | Runtime limits: `{deployment_target, max_upload_size_bytes, max_request_body_bytes, max_stored_size_bytes}` |
 
 The frontend reads `/api/config/capabilities` once per page load and rejects
 oversized files before uploading. Uploads over the cap return `413`; an upload
@@ -32,9 +32,9 @@ Word-only, so a `PDF` output request returns `400`.
 | `GET` | `/api/auth/me` | Firebase user | `{user, permissions}`; creates the profile on first call; refreshes `last_login_at` at most every 5 min |
 | `POST` | `/api/auth/sync` | Firebase user | Merge `{full_name, phone_number, designation, organization, bio, profile_picture}`; returns `{user, permissions}` |
 | `POST` | `/api/auth/logout` | Firebase user | `204` acknowledgment; the real sign-out happens in the browser |
-| `GET` | `/api/auth/pending-users` | `SUPER_ADMIN` | Accounts with `account_status = pending` |
-| `POST` | `/api/auth/users/{user_id}/approve` | `SUPER_ADMIN` | Body `{role_codes: ["INNOVATOR", …]}` (at least one); sets approved |
-| `POST` | `/api/auth/users/{user_id}/reject` | `SUPER_ADMIN` | Sets `rejected` |
+| `GET` | `/api/auth/pending-users` | `<USERS_APPROVE>` | Accounts with `account_status = pending` |
+| `POST` | `/api/auth/users/{user_id}/approve` | `<USERS_APPROVE>` | Body `{role_codes: ["INNOVATOR", …]}` (at least one); sets approved. Granting `SUPER_ADMIN`, or changing a Super Admin account's roles at all, requires a Super Admin caller, and no change may leave zero Super Admins |
+| `POST` | `/api/auth/users/{user_id}/reject` | `<USERS_APPROVE>` | Sets `rejected`; cannot reject your own account or a Super Admin |
 
 The bootstrap email (`BOOTSTRAP_ADMIN_EMAIL`) is always projected as an approved `SUPER_ADMIN`, even if an older profile said otherwise.
 
@@ -54,10 +54,11 @@ Membership is a `teams/{id}/members/{uid}` subcollection; removing a member remo
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/api/patents` | `<PATENTS_VIEW>` | Visible patents only |
+| `GET` | `/api/patents` | `<PATENTS_VIEW>` | Visible patents only; `?team_id=` scopes to one team (404/403 for invisible teams), `?limit=` caps the response (default 1000, max 1000) |
 | `POST` | `/api/patents` | `<PATENTS_CREATE>` | Body `{team_id, invention_title}`; starts as `Draft` |
 | `GET` | `/api/patents/available-agents` | `<PATENTS_ASSIGN>` | Approved `PATENT_AGENT` users with active assignment counts |
 | `GET` | `/api/patents/{patent_id}` | `<PATENTS_VIEW>` + visibility | One patent |
+| `PATCH` | `/api/patents/{patent_id}` | `<PATENTS_EDIT>` + creator/admin, status `Draft` | Body `{invention_title}`; renames the application |
 | `POST` | `/api/patents/{patent_id}/submit` | `<PATENTS_SUBMIT>` + creator/admin, status `Draft` | → `Submitted` |
 | `POST` | `/api/patents/{patent_id}/assign` | `<PATENTS_ASSIGN>` + creator/admin | Body `{patent_agent_id}`; → `Awaiting Patent Agent Acceptance` |
 | `POST` | `/api/patents/{patent_id}/auto-assign` | `<PATENTS_ASSIGN>` + creator/admin | Picks the least-loaded approved agent |
@@ -112,19 +113,19 @@ Section types: `ABSTRACT`, `BACKGROUND`, `SUMMARY`, `DESCRIPTION`, `CLAIMS`. Stu
 | `GET` | `/api/patents/{patent_id}/form-fields` | `<DRAFTS_VIEW>` + assigned agent/admin | Latest refined group per group code |
 | `PATCH` | `/api/patents/{patent_id}/form-fields` | `<DRAFTS_GENERATE>` + assigned agent/admin | Body `{group, fields}`; edits save as a new version, never touch the questionnaire |
 | `POST` | `/api/patents/{patent_id}/figures/classify` | `<DRAFTS_GENERATE>` + assigned agent/admin | Vision second opinion over figure candidates (needs `AI_VISION_ENABLED`) |
-| `POST` | `/api/patents/{patent_id}/forms/generate` | `<DOCUMENTS_GENERATE>` + assigned agent/admin | Body `{codes?: [...], counts?: {page_count, claim_count, claims_page_count, abstract_page_count, drawing_page_count}}`; only allowlisted count keys are accepted. `drawing_count` is always derived from the selected figures. Renders each form with its own job row |
+| `POST` | `/api/patents/{patent_id}/forms/generate` | `<DOCUMENTS_GENERATE>` + assigned agent/admin | Body `{codes?: [...], counts?: {page_count, claim_count, claims_page_count, abstract_page_count, drawing_page_count}}`; only allowlisted count keys are accepted (unknown keys are rejected, values capped at 40 chars). `drawing_count` is always derived from the selected figures. Renders each form with its own job row |
 | `GET` | `/api/patents/{patent_id}/forms` | `<DOCUMENTS_VIEW>` | Per-form status, missing fields, usable-figure count, finalize state |
 | `POST` | `/api/patents/{patent_id}/forms/finalize` | `<DOCUMENTS_GENERATE>` + assigned agent/admin | Locks the set; requires all forms, complete fields, ≥1 usable figure, and no failed job newer than its document |
 | `GET` | `/api/patents/{patent_id}/forms/{code}/download` | `<DOCUMENTS_VIEW>` | Stream the latest DOCX (`<title>-FORM1-v3.docx`) |
 | `GET` | `/api/patents/{patent_id}/forms/{code}/versions` | `<DOCUMENTS_VIEW>` | Version list with embedded/omitted figures |
 
-Refinement groups: `FORM_METADATA`, `FORM_BACKGROUND`, `FORM_EMBODIMENTS`. Form codes: `FORM1`, `FORM2`, `FORM3`, `FORM5`, `DRAWINGS`. Every generated form ends with one "This is for drafting purposes only." disclosure (ADR-008); the legacy per-section warnings stay on the old path only.
+Refinement groups: `FORM_METADATA`, `FORM_BACKGROUND`, `FORM_EMBODIMENTS`. Form codes: `FORM1`, `FORM2`, `FORM3`, `FORM5`, `DRAWINGS`. Every generated form ends with one "This is for drafting purposes only and is not legal advice; a qualified patent professional must review it before filing." disclosure (ADR-008); the legacy per-section warnings stay on the old path only.
 
 ## Files
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/api/patents/{patent_id}/files` | Visible | List metadata |
+| `GET` | `/api/patents/{patent_id}/files` | Visible | List metadata; `?limit=` caps the response (default 1000, max 1000) |
 | `POST` | `/api/patents/{patent_id}/files` | `<FILES_UPLOAD>` | Multipart field `upload`; validates non-empty, size cap, extension allowlist. A PDF is converted to DOCX before storage and returns `source_file_name` + `converted_from_pdf`. Extraction runs in-process: text plus figure candidates with screening. |
 | `GET` | `/api/patents/{patent_id}/files/{file_id}/download` | Visible | Streams the stored file as an attachment |
 | `GET` | `/api/patents/{patent_id}/files/{file_id}/text` | Visible | Extracted markdown the drafting model reads |
@@ -136,11 +137,6 @@ Refinement groups: `FORM_METADATA`, `FORM_BACKGROUND`, `FORM_EMBODIMENTS`. Form 
 Image uploads (`.png`, `.jpg`, `.jpeg`) become single figure candidates. Figure rows carry `usable` (`usable`/`rejected`/`unknown`), `reason`, `vision_description`, `include_in_drawings`, `display_order`.
 
 ## Documents — legacy single-document path, deprecated
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `GET` | `/api/patents/{patent_id}/documents` | `<DOCUMENTS_VIEW>` | List documents |
-| `GET` | `/api/patents/{patent_id}/documents/jobs` | `<DOCUMENTS_VIEW>` | List generation jobs |
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
@@ -185,7 +181,7 @@ Event types: `Filing Deadline`, `Examination`, `Hearing`, `Reminder`.
 |---|---|---|---|
 | `GET` | `/api/templates` | `<TEMPLATES_VIEW>` | All templates |
 | `GET` | `/api/templates/document-types` | `<TEMPLATES_VIEW>` | Supported document types |
-| `POST` | `/api/templates` | `<TEMPLATES_MANAGE>` | Multipart `upload` + query `document_type`, `activate`; validates `.docx` and placeholder set |
+| `POST` | `/api/templates` | `<TEMPLATES_MANAGE>` | Multipart `upload` + query `document_type`, `activate`; accepts `.docx` and `.pdf` (PDFs are converted to DOCX; legacy `.doc` is rejected). Templates with unknown placeholders or parse errors are stored inactive and cannot be activated |
 | `POST` | `/api/templates/{template_id}/activate` | `<TEMPLATES_MANAGE>` | Deactivates siblings of the same type |
 | `DELETE` | `/api/templates/{template_id}` | `<TEMPLATES_MANAGE>` | Delete blob + metadata |
 
@@ -199,8 +195,8 @@ Document types: `Patent Application`, `Provisional Specification`, `Complete Spe
 | `GET` | `/api/reports/dashboard` | Approved user | Status counts, action-required count, unread notifications, upcoming events, recent activity (admins) |
 | `GET` | `/api/reports/{report_type}` | `<REPORTS_VIEW>` | Rows for one report type |
 | `GET` | `/api/reports/{report_type}/export` | `<REPORTS_VIEW>` | CSV attachment |
-| `GET` | `/api/reports/permissions/matrix` | `SUPER_ADMIN` | Roles × report types |
-| `POST` | `/api/reports/permissions/toggle?grant=true\|false` | `SUPER_ADMIN` | Body `{role_id, report_type}` |
+| `GET` | `/api/reports/permissions/matrix` | `<RBAC_MANAGE>` | Roles × report types |
+| `POST` | `/api/reports/permissions/toggle?grant=true\|false` | `<RBAC_MANAGE>` | Body `{role_id, report_type}`; the `users` report can never leave admin hands |
 
 Report types: `patent_applications`, `documents`, `calendar_events`, `users`. Report downloads can additionally be restricted per role through the report-permission matrix.
 
@@ -208,10 +204,10 @@ Report types: `patent_applications`, `documents`, `calendar_events`, `users`. Re
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/api/rbac/matrix` | `SUPER_ADMIN` | Roles, 27 permissions, effective grants |
-| `POST` | `/api/rbac/toggle?grant=true\|false` | `SUPER_ADMIN` | Body `{role_id, permission_id}`; Super Admin grants are immutable |
-| `GET` | `/api/rbac/users` | `SUPER_ADMIN` | Users with roles and status |
-| `POST` | `/api/rbac/users/{target_id}/roles` | `SUPER_ADMIN` | Body `{role_code}`; adds a role |
-| `DELETE` | `/api/rbac/users/{target_id}/roles/{role_code}` | `SUPER_ADMIN` | Removes a role; cannot remove your own `SUPER_ADMIN` or a user's last role |
+| `GET` | `/api/rbac/matrix` | `<RBAC_MANAGE>` | Roles, 27 permissions, effective grants |
+| `POST` | `/api/rbac/toggle?grant=true\|false` | `<RBAC_MANAGE>` | Body `{role_id, permission_id}`; Super Admin grants are immutable |
+| `GET` | `/api/rbac/users` | `<RBAC_MANAGE>` | Users with roles and status |
+| `POST` | `/api/rbac/users/{target_id}/roles` | `<RBAC_MANAGE>` | Body `{role_code}`; adds a role. Granting `SUPER_ADMIN` requires a Super Admin caller |
+| `DELETE` | `/api/rbac/users/{target_id}/roles/{role_code}` | `<RBAC_MANAGE>` | Removes a role; cannot remove your own `SUPER_ADMIN`, cannot leave zero Super Admins, every user keeps at least one role |
 
 The catalog is code-defined (`app/services/rbac.py`); overrides are stored in Firestore (`rbac_overrides`, `report_permission_overrides`). Role/permission IDs in these payloads are numeric catalog IDs.

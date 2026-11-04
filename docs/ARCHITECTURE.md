@@ -26,7 +26,7 @@
                                   gzip-compressed documents)
 ```
 
-- **Frontend** (`frontend/`): React 18 SPA, React Router role-guarded routes, React Query, Hook Form + Zod. Firebase JS SDK performs Google sign-in; `VITE_*` values are baked at build time, so there is no runtime env.
+- **Frontend** (`frontend/`): React 18 SPA with React Router role-guarded routes and FullCalendar for the calendar view. Firebase JS SDK performs Google sign-in; `VITE_*` values are baked at build time, so there is no runtime env. There is deliberately no client state library: server state flows through `lib/api.ts` (`apiFetch`/`apiUpload`/`apiDownload`) with per-component `useState`, and auth/session state lives in `AuthContext`.
 - **Backend** (`backend/app/main.py`): FastAPI with a `lifespan` that attempts `initialize_firebase()` but never blocks boot. `/health` probes Firestore. Mounts exactly two routers: `auth` (`/api/auth`) and `resources` (`/api`). CORS + TrustedHost middleware; a generic 500 handler that stays terse in production.
 - **Firebase**: Authentication is the identity provider; Firestore is the system of record and also stores the document bytes (ADR-006). The browser uses Firebase Auth only — all data access goes through the API, whose Admin SDK runs privileged. The checked-in `firestore.rules` therefore deny every direct client read and write; Security Rules do **not** replace backend authorization. The Realtime Database and Cloud Storage are not used.
 
@@ -44,14 +44,14 @@
 | Role code | Granted by | Meaning |
 |---|---|---|
 | `INNOVATOR` | Default for new users | Own teams + patents |
-| `PATENT_AGENT` | `SUPER_ADMIN` via `/api/rbac/users/{id}/roles` | Can be assigned patents |
-| `ADMIN` | `SUPER_ADMIN` | Approve users, assign agents, manage templates |
-| `SUPER_ADMIN` | Bootstrap email, then `SUPER_ADMIN` only | Full control incl. role assignment |
+| `PATENT_AGENT` | Role assignment (`RBAC_MANAGE`; Super Admin only for the Super Admin role) | Can be assigned patents |
+| `ADMIN` | Role assignment | Approve users, assign agents, manage templates |
+| `SUPER_ADMIN` | Bootstrap email, then Super Admins only | Full control incl. role assignment |
 
 - Roles are stored as `role_codes: string[]` on the user document (ADR-002). The API projects them as `roles`.
 - Internal state is lowercase (`account_status`: `pending` → `approved` / `rejected`); the API projects Title-Case values (`Pending`, `Approved`, …) for the existing UI.
 - The permission catalog is code-defined in `app/services/rbac.py`: 4 roles × 27 permissions, with sensible defaults per role. Super Admin always holds every permission. Super Admin toggles are stored in `rbac_overrides`; report-download grants live in `report_permission_overrides`. No seed script is required — an empty Firebase project falls back to the code-defined matrix.
-- Admins can toggle the matrix (`/api/rbac/toggle`), but only Super Admin can assign or revoke roles.
+- Admins can toggle the matrix (`/api/rbac/toggle`), and `RBAC_MANAGE` holders can assign or revoke non-Super-Admin roles. Granting or revoking `SUPER_ADMIN` — or changing a Super Admin account's roles at all — requires a Super Admin, and no change may leave zero Super Admins.
 - Sign-in is browser-side only: no server-minted JWT, no refresh endpoint, no dev login. The product's 30-minute inactivity rule is enforced by `AuthContext`, which signs the Firebase session out after idling.
 - Route guards: `ProtectedRoute(requireRole=[...], requirePermission=...)` redirects to `/login`, `/pending-approval`, or `/not-authorized`.
 
@@ -72,7 +72,9 @@ No joins, no migrations — documents are linked by string IDs and filtered in t
 | `documents` | `patent_application_id`, `output_format`, `stored_path` (blob id) | `patent_application_id` |
 | `document_versions` | `document_id`, `version_number`, `storage_path` (blob id) | `document_id` |
 | `document_jobs` | `patent_application_id`, `status`, `error_message` | `patent_application_id` |
-| `files` | `patent_application_id`, `blob_id`, `uploaded_by`, `converted_from_pdf` | `patent_application_id` |
+| `files` | `patent_application_id`, `blob_id`, `uploaded_by`, `converted_from_pdf`, `extraction_status`, `extraction_error` | `patent_application_id` |
+| `file_extractions` | `file_id`, `status`, `method`, `text_blob_id`, `figure_count`, `error`, `extracted_at` | `file_id` (doc ID), `patent_application_id` |
+| `file_figures` | `file_id`, `usable`, `include_in_drawings`, `caption`, `caption_override`, `image_blob_id`, `display_order` | `file_id`, `patent_application_id` |
 | `comments` | `patent_application_id`, `user_id`, `comment_text` | `patent_application_id` |
 | `calendar_events` | `patent_application_id`, `event_type`, `event_date` | patent and/or creator |
 | `notifications` | `recipient_uid`, `notification_type`, `is_read` | recipient |
@@ -112,20 +114,22 @@ Guards in `app/api/resources.py` and `app/services/projections.py`:
 - Draft generation requires `Under Review` and a completed questionnaire; document generation requires `Under Review` or `Draft Generated` and the assigned agent/admin.
 - Statuses beyond `Draft Generated` (filing, examination, grant) are display/import states today; no endpoint moves an application into them yet.
 
-## 6. AI drafting
+## 6. AI drafting and refinement
 
-All drafting logic lives in `app/services/drafting.py`:
+Two paths share the stub-first contract (ADR-004): with no `AI_*` configured, deterministic stubs keep every flow exercisable offline; half-configured AI fails loudly.
 
-- When `AI_API_URL` and `AI_API_KEY` are both set, the backend calls that OpenAI-compatible endpoint (`AI_MODEL`, e.g. Groq/Qwen, Gemini, or a local model) through `httpx`; the warning is re-appended if the model omits it. Any provider failure becomes a `502`.
-- When either is unset, a deterministic stub builds a placeholder from the questionnaire and appends `DRAFT_WARNING` — no network calls, so the whole workflow (versions, documents UI, agent walkthroughs) is exercisable without keys.
-- `POST /api/patents/{id}/draft/generate` accepts `section_types` (default: all five) and stores one `drafts` document per section with an incremented `version_number`, plus `ai_provider`, `ai_model`, and usage fields.
+- **Legacy section drafts** (`app/services/drafting.py`, deprecated): five fixed sections (`ABSTRACT` … `CLAIMS`) from the questionnaire plus capped extraction context, stored as `drafts` rows. Questionnaire answers and extracted text travel inside delimited data-only blocks; invented reference numerals are logged, not blocked.
+- **Form refinement** (`app/services/form_ai.py`, current): three field groups (`FORM_METADATA`, `FORM_BACKGROUND`, `FORM_EMBODIMENTS`) refined from raw answers plus keyword-ranked excerpts (`select_context`) and optional vision input for embodiments only. `validate_group_output` enforces exact keys, lengths, noun-phrase/verb grammar, control-character bans, numeral-invention checks, and `[[FIG:alias]]` marker consistency — with one text-only repair retry, then a stub fallback whose rows satisfy the same rules. A provider image refusal falls back per request, never process-wide.
+
+Figure aliases are row-id derived (`extraction_store.figure_alias`) so markers stored in refined text survive re-renders; `forms.substitute_figure_markers` resolves them to sheet numbers at render time and fails closed on unknown aliases. Delimiters are advisory only — enforcement lives in code (ADR-008 §"Prompt-security posture").
 
 ## 7. Documents and files
 
 - **Documents**: `POST .../documents/generate` runs a generation job synchronously. `app/services/documents.py` renders DOCX with `docxtpl` when an active template exists for the document type, otherwise with the built-in `python-docx` layout. Word is the only output format: the DOCX is gzip-compressed by `app/services/blobs.py` into a `blobs` document (capped at 900 KB compressed, ADR-006), `documents` / `document_versions` / `document_jobs` rows are written, and the patent moves to `Draft Generated`.
 - **Downloads**: files and documents are streamed through the API with `Content-Disposition: attachment`; there are no signed URLs to expire. The API decompresses the blob, verifies its SHA-256, and streams it from memory.
-- **Files**: `POST .../files` (multipart) validates non-empty content, size cap, and the extension allowlist. A PDF is converted to DOCX in-process with `pdf2docx` first; the result is compressed into a blob and a `files` row records `blob_id`, the converted name, `source_file_name`, and `converted_from_pdf`. Delete removes blob + row (uploader, `FILES_DELETE`, or admin).
-- **Templates**: `POST /api/templates` (admin, multipart `.docx`) stores the template as a blob referenced by `templates.file_path`, reports unknown/unused Jinja placeholders in the upload response, and deactivates siblings of the same `document_type` when activated.
+- **Files**: `POST .../files` (multipart) validates non-empty content, size cap, and the extension allowlist. A PDF is converted to DOCX in-process with `pdf2docx` first; the result is compressed into a blob and a `files` row records `blob_id`, the converted name, `source_file_name`, and `converted_from_pdf`. Delete removes blob + row + extraction rows + figure blobs (uploader, `FILES_DELETE`, or admin).
+- **Extraction** (`app/services/ingestion.py`, `extraction_store.py`): after the upload is stored, OpenDataLoader (JVM) reads PDFs into text plus figure bounding boxes; DOCX/PPTX/text/images are parsed in-process. Captions bind to the next image only. Rows land in `file_extractions` (text blob, status, error) and `file_figures` (usable/screening flags, captions, image blobs). Extraction never fails the upload. Deterministic screening (`figure_quality.py`) plus an optional YOLO DocLayNet detector (`figure_detection.py`, weights mounted never committed; failures are reported on the extraction row, not raised) feed the drawings sheet.
+- **Templates**: `POST /api/templates` (admin, multipart `.docx` or `.pdf`; legacy `.doc` is rejected, PDFs are converted to DOCX) stores the template as a blob referenced by `templates.file_path`, records unknown placeholders and parse errors, and stores bad templates inactive — activation of a broken template is refused. `render_docx` renders through a sandboxed Jinja environment with `StrictUndefined`, so unknown placeholders fail loudly instead of rendering blanks.
 
 ## 8. Frontend architecture
 
@@ -138,10 +142,10 @@ All drafting logic lives in `app/services/drafting.py`:
 ## 9. Cross-cutting concerns
 
 - **Config**: `app/core/config.py` (`pydantic-settings`, `.env`, `extra='ignore'`) — Firebase, app, upload, and AI settings only.
-- **Observability**: generic 500 handler, request logging via uvicorn/gunicorn access logs, `/health` Firebase probe. There is no structured logging/metrics pipeline yet.
-- **Scaling**: single-instance assumption — document generation and PDF conversion run in-process. See ADR-003.
+- **Observability**: JSON application logs carrying `event` plus the per-request `X-Request-ID` (accepted from the client when safe, minted otherwise), uvicorn/gunicorn access logs, and a `/health` probe that answers `200` connected or `503` degraded (which the Docker healthcheck accepts as "up"). No metrics pipeline yet.
+- **Scaling**: single-instance assumption — document generation, PDF conversion, extraction, and AI batches run in-process on two gunicorn workers. See ADR-003.
 - **Verification**: `backend/tests/` is an offline suite (no Firebase credentials). Live Auth/Firestore behaviour is covered by the manual checklist in `backend/README.md` §7.
-- **Rate limiting**: `app/core/ratelimit.py` implements a sliding-window limiter on `/api/auth/*` routes (`AUTH_RATE_LIMIT_PER_MINUTE`, default `60`). `/api/auth/me` and `/api/auth/logout` are exempt. Set `FORWARDED_ALLOW_IPS` to your proxy so each user gets their own bucket; otherwise every user shares the proxy IP. The limit is per gunicorn worker; with multiple workers the effective limit is doubled—rate-limit at the platform edge (WAF, Cloud Run concurrency) for production multi-replica deployments.
+- **Rate limiting**: `app/core/ratelimit.py` implements in-memory sliding windows: a strict cap on mutating `/api/auth/*` (`AUTH_RATE_LIMIT_PER_MINUTE`, default `60`) plus a looser per-IP budget across all other `/api/` routes (`API_RATE_LIMIT_PER_MINUTE`, default `300`) covering draft generation, refinement, uploads, and exports. Session endpoints and framework paths are exempt. Set `FORWARDED_ALLOW_IPS` to your proxy so each user gets their own bucket; otherwise every user shares the proxy IP. The bucket is per gunicorn worker; with multiple workers the effective limit multiplies — rate-limit at the platform edge (WAF, Cloud Run concurrency) for production multi-replica deployments.
 - **Session persistence**: `AuthContext` persists profile, permissions, and status to `localStorage` under `patent-platform:profile:v2`. On reload the cached state renders immediately while Firebase restores the session in the background; on logout or 401 the cache is cleared.
 - **Error boundary**: `ErrorBoundary` wraps `<App>` in `main.tsx`. Render errors produce a friendly UI instead of a blank page; all frontend errors are logged via `lib/api.ts#logError` and user-facing messages are generic (e.g. "Your session has expired. Please sign in again.").
 
@@ -155,3 +159,5 @@ The reasoning behind the significant choices above is recorded in [`decisions/`]
 - [ADR-004](./decisions/ADR-004-stub-first-ai.md) — Stub-first AI drafting with optional OpenAI-compatible provider
 - [ADR-005](./decisions/ADR-005-firestore-only-runtime.md) — Firestore-only runtime; legacy SQL stack removed
 - [ADR-006](./decisions/ADR-006-firestore-document-storage.md) — Word-only documents stored as compressed Firestore blobs
+- [ADR-007](./decisions/ADR-007-document-ingestion.md) — Document ingestion pipeline (OpenDataLoader extraction, figure candidates)
+- [ADR-008](./decisions/ADR-008-sheet-driven-forms.md) — Sheet-driven statutory forms with AI-assisted refinement
