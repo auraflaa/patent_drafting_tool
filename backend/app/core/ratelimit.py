@@ -1,9 +1,18 @@
-"""In-memory rate limiter for the auth endpoints that create or mutate users.
+"""In-memory rate limiter for auth endpoints and expensive API routes.
 
 Single-instance deployment (ADR-003), so an in-memory sliding window is
 acceptable. This is a capacity guard, not a security boundary: Firebase
 verifies every token, so the goal is to stop one caller from hammering
-Firestore, not to protect a password.
+Firestore or burning paid-AI quota, not to protect a password.
+
+Two instances wrap the app (see main.py): a strict one for the mutating
+`/api/auth` endpoints and a looser per-IP budget across every other `/api/`
+route (draft generation, refinement, uploads, exports). Session endpoints
+(`/api/auth/me`, `/api/auth/logout`) are exempt because they run on
+every page load, and a 429 there would sign an innocent user out.
+Unauthenticated framework paths (`/health`, `/docs`, …) are exempt from the
+API budget so probes and browsers never trip it. Multi-replica deployments
+need a shared store (Redis) instead.
 
 `scope["client"]` is the proxy address unless uvicorn is told which proxies to
 trust. Behind Cloud Run or a load balancer, set `FORWARDED_ALLOW_IPS` so the
@@ -21,6 +30,11 @@ from starlette.responses import JSONResponse
 # Touched on every page load or sign-out; not a mutation surface.
 DEFAULT_EXEMPT_PATHS = frozenset({"/api/auth/me", "/api/auth/logout"})
 
+# Framework paths that must never consume the API budget (probes, browsers).
+PUBLIC_EXEMPT_PATHS = frozenset(
+    {"/", "/health", "/docs", "/redoc", "/openapi.json"}
+)
+
 # Drop idle keys every N requests so a long-lived process cannot accumulate one
 # deque per client address.
 _SWEEP_EVERY = 1024
@@ -34,6 +48,7 @@ class RateLimitMiddleware:
         limit: int = 60,
         window_seconds: int = 60,
         prefix: str = "/api/auth",
+        prefixes: tuple[str, ...] | None = None,
         exempt_paths: frozenset[str] = DEFAULT_EXEMPT_PATHS,
     ):
         if limit < 0:
@@ -43,7 +58,10 @@ class RateLimitMiddleware:
         self.app = app
         self.limit = limit
         self.window = window_seconds
-        self.prefix = prefix
+        # One per-IP budget across every covered prefix: a caller hammering
+        # draft generation cannot dodge the cap by alternating endpoints.
+        self.prefixes = tuple(prefixes) if prefixes else (prefix,)
+        self.prefix = self.prefixes[0]
         self.exempt_paths = exempt_paths
         self._buckets: dict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
@@ -54,7 +72,7 @@ class RateLimitMiddleware:
             await self.app(scope, receive, send)
             return
         path = scope.get("path", "")
-        if not path.startswith(self.prefix) or path in self.exempt_paths:
+        if path in self.exempt_paths or not path.startswith(self.prefixes):
             await self.app(scope, receive, send)
             return
 

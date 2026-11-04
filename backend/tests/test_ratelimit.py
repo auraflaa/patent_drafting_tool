@@ -78,3 +78,52 @@ def test_invalid_limit_is_rejected() -> None:
         RateLimitMiddleware(lambda *args: None, limit=-1)
     with pytest.raises(ValueError):
         RateLimitMiddleware(lambda *args: None, window_seconds=0)
+
+
+def _expensive_app(*, limit: int = 2) -> FastAPI:
+    """Limiter covering two expensive prefixes with one per-IP budget."""
+    app = FastAPI()
+    app.add_middleware(
+        RateLimitMiddleware,
+        limit=limit,
+        window_seconds=60,
+        prefixes=("/api/patents", "/api/reports"),
+        exempt_paths=frozenset({"/health"}),
+    )
+
+    @app.post("/api/patents/p1/draft/generate")
+    def generate() -> dict:
+        return {"ok": True}
+
+    @app.get("/api/reports/dashboard")
+    def dashboard() -> dict:
+        return {"ok": True}
+
+    @app.get("/api/teams")
+    def teams() -> dict:
+        return {"ok": True}
+
+    @app.get("/health")
+    def health() -> dict:
+        return {"ok": True}
+
+    return app
+
+
+def test_multiple_prefixes_share_one_per_ip_budget() -> None:
+    client = TestClient(_expensive_app(limit=2))
+    assert client.post("/api/patents/p1/draft/generate").status_code == 200
+    assert client.post("/api/patents/p1/draft/generate").status_code == 200
+    # The third expensive call trips the shared budget, even on the other prefix.
+    blocked = client.get("/api/reports/dashboard")
+    assert blocked.status_code == 429
+    # Outside the covered prefixes nothing is limited.
+    for _ in range(3):
+        assert client.get("/api/teams").status_code == 200
+
+
+def test_exempt_paths_bypass_the_multi_prefix_limiter() -> None:
+    client = TestClient(_expensive_app(limit=1))
+    assert client.post("/api/patents/p1/draft/generate").status_code == 200
+    for _ in range(3):
+        assert client.get("/health").status_code == 200

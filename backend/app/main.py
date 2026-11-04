@@ -11,7 +11,7 @@ from app.core.firebase import FirestoreUnavailable, firestore_ping, initialize_f
 from app.core.headers import SecurityHeadersMiddleware
 from app.core.limits import RequestBodyLimitMiddleware
 from app.core.logging import RequestIDMiddleware, configure_logging
-from app.core.ratelimit import RateLimitMiddleware
+from app.core.ratelimit import PUBLIC_EXEMPT_PATHS, RateLimitMiddleware
 from app.api.auth import router as auth_router
 from app.api.resources import router as resources_router
 
@@ -61,6 +61,16 @@ app = FastAPI(title=settings.app_name, version='1.0.0', description='Firebase-ba
 app.add_middleware(UnhandledErrorMiddleware, production=settings.environment == 'production')
 app.add_middleware(RequestBodyLimitMiddleware)
 app.add_middleware(RateLimitMiddleware, limit=settings.auth_rate_limit_per_minute)
+# Looser per-IP budget across every other /api/ route: draft generation, AI
+# refinement, and uploads burn paid quota and CPU in-process, so they must
+# not be scriptable without bound. Runs inside the auth limiter; a request
+# to /api/auth/* consumes from both budgets.
+app.add_middleware(
+    RateLimitMiddleware,
+    limit=settings.api_rate_limit_per_minute,
+    prefixes=("/api/",),
+    exempt_paths=PUBLIC_EXEMPT_PATHS | {"/api/auth/me", "/api/auth/logout"},
+)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=[x.strip() for x in settings.allowed_hosts.split(',') if x.strip()] or ['*'])
 app.add_middleware(
     CORSMiddleware,

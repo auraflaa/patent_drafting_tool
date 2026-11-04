@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     # Requests per minute per client for the mutating /api/auth endpoints.
     # 0 disables the limiter. Session endpoints are exempt (see ratelimit.py).
     auth_rate_limit_per_minute: int = Field(default=60, ge=0)
+    # Requests per minute per client across every other /api/ route (draft
+    # generation, AI refinement, uploads, exports). A second, looser budget
+    # on top of the auth limiter: paid-AI and CPU-heavy routes must not be
+    # scriptable without bound. 0 disables it.
+    api_rate_limit_per_minute: int = Field(default=300, ge=0)
     # `vercel` clamps the upload limit below Vercel's 4.5 MB function body cap.
     deployment_target: Literal['self_hosted', 'vercel'] = 'self_hosted'
     # 0 means "use the deployment target's default".
