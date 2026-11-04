@@ -529,3 +529,15 @@ def test_export_report_streams_csv_bytes(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "Normal" in body
     # Formula cells stay neutralised, exactly as before the streaming change.
     assert "'=cmd" in body
+
+
+def test_export_route_points_at_export_report() -> None:
+    """The streaming refactor must not strand the decorator on the helper."""
+    from app.api import resources
+
+    route = next(
+        r
+        for r in resources.router.routes
+        if getattr(r, "path", None) == "/reports/{report_type}/export"
+    )
+    assert route.endpoint is resources.export_report

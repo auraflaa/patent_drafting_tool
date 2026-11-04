@@ -3083,7 +3083,6 @@ def report_catalog(user: dict = Depends(active_user)):
     ]
 
 
-@router.get("/reports/{report_type}/export")
 def _csv_stream(rows: list[dict]):
     """Yield a CSV body row by row.
 
@@ -3106,6 +3105,7 @@ def _csv_stream(rows: list[dict]):
         buffer.truncate(0)
 
 
+@router.get("/reports/{report_type}/export")
 def export_report(report_type: str, user: dict = Depends(active_user)):
     ensure_permission(user, "REPORTS_VIEW")
     if report_type not in REPORT_TYPE_NAMES:

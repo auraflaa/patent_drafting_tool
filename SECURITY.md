@@ -86,7 +86,8 @@ Current controls (Firebase runtime):
   Templates with unknown placeholders or parse errors are stored inactive and
   cannot be activated.
 - **Transport:** CORS allow-list (`CORS_ORIGINS`) with an explicit method set
-  (`GET/POST/PATCH/DELETE`) and header set (`Authorization/Content-Type`);
+  (`GET/POST/PATCH/DELETE`, plus `OPTIONS` for preflight) and header set
+  (`Authorization/Content-Type`);
   trusted hosts (`ALLOWED_HOSTS`), HSTS in production only (HTTPS itself is
   enforced by the platform/ingress per `DEPLOYMENT.md`, not by an in-app
   redirect), and a strict CSP on API responses (Swagger/ReDoc exempt). The
