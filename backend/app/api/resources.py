@@ -879,6 +879,12 @@ APPLICANT_FIELDS = (
 
 
 def _apply_primary(patent_id: str, keep_id: str) -> None:
+    # Exactly one primary is a convention, not an invariant: two concurrent
+    # creates can both mint `is_primary` before either demotion read sees the
+    # other. The last demotion to run still converges the set to one primary
+    # (every other primary row is cleared), and duplicate display orders only
+    # affect list order, so this stays a plain read-modify-write instead of a
+    # Firestore transaction.
     for doc in query_docs(
         "applicants", filters=[("patent_application_id", "==", patent_id)]
     ):
