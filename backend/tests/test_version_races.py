@@ -183,7 +183,7 @@ def test_concurrent_draft_generations_mint_distinct_versions(
             "created_by": "u1",
         },
     )
-    monkeypatch.setattr(resources, "can_review_draft", lambda *a: True)
+    monkeypatch.setattr(resources, "can_access_drafts", lambda *a: True)
     monkeypatch.setattr(
         resources,
         "_questionnaire",

@@ -99,9 +99,9 @@ Questionnaire fields: `invention_type`, `problem_statement`, `proposed_solution`
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/api/patents/{patent_id}/draft` | `<DRAFTS_VIEW>` + assigned agent/admin | Latest output per section (5 slots, `latest: null` where absent) |
-| `POST` | `/api/patents/{patent_id}/draft/generate` | `<DRAFTS_GENERATE>` + assigned agent/admin | Body `{section_types?: [...]}`; requires `Under Review` + completed questionnaire |
-| `GET` | `/api/patents/{patent_id}/draft/{section_type}/versions` | `<DRAFTS_VIEW>` + assigned agent/admin | Versions for one section |
+| `GET` | `/api/patents/{patent_id}/draft` | `<DRAFTS_VIEW>` + owner/assigned agent/admin | Latest output per section (5 slots, `latest: null` where absent) |
+| `POST` | `/api/patents/{patent_id}/draft/generate` | `<DRAFTS_GENERATE>` + owner/assigned agent/admin | Body `{section_types?: [...]}`; requires a completed questionnaire and a pre-filing status (`Draft` through `Draft Generated`); innovators hold these grants so they can draft their own applications |
+| `GET` | `/api/patents/{patent_id}/draft/{section_type}/versions` | `<DRAFTS_VIEW>` + owner/assigned agent/admin | Versions for one section |
 
 Section types: `ABSTRACT`, `BACKGROUND`, `SUMMARY`, `DESCRIPTION`, `CLAIMS`. Stub provider by default; every response text carries the draft-only warning (ADR-004). Superseded by form-field refinement below; kept for existing records.
 

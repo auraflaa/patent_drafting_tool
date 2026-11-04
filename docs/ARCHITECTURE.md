@@ -108,10 +108,11 @@ create (Draft) → submit (Submitted) → assign/auto-assign (Awaiting Patent Ag
 Guards in `app/api/resources.py` and `app/services/projections.py`:
 
 - `submit`: patent creator or admin, and only while `Draft`.
+- `recall`: patent creator or admin, only while `Submitted` and unassigned; returns the application (and its questionnaire) to `Draft` with answers kept.
 - `assign` / `auto-assign` / `reassign`: `ADMIN`/`SUPER_ADMIN`; assignee must be an approved `PATENT_AGENT`; auto-assign picks the lowest active assignment count. Assignment history is appended to the patent document.
 - `accept` / `reject`: only the assigned agent, identified by their own token; rejection clears the assignment and returns the application to `Submitted` (still read-only — recall to `Draft` to edit again).
 - Basic info + applicants/inventors are editable only while `Draft` (`can_edit_basic_info`).
-- Draft generation requires `Under Review` and a completed questionnaire; document generation requires `Under Review` or `Draft Generated` and the assigned agent/admin.
+- Draft generation requires a completed questionnaire and a pre-filing status (`Draft` through `Draft Generated`); the owner, the assigned agent, or an admin may generate, and innovators hold the `DRAFTS_*` grants for their own applications. Document generation requires `Under Review` or `Draft Generated` and the assigned agent/admin.
 - Statuses beyond `Draft Generated` (filing, examination, grant) are display/import states today; no endpoint moves an application into them yet.
 
 ## 6. AI drafting and refinement

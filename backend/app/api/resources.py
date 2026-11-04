@@ -52,6 +52,7 @@ from app.services.form_specs import COUNT_KEYS
 from app.services.questionnaire_schema import FIELD_BY_KEY
 from app.services.projections import (
     CALENDAR_EVENT_TYPES,
+    DRAFTABLE_STATUSES,
     PRE_ASSIGNMENT_STATUSES,
     QUESTIONNAIRE_FIELDS,
     REQUIRED_QUESTIONNAIRE_FIELDS,
@@ -59,6 +60,7 @@ from app.services.projections import (
     active_assignment_count,
     ai_output_out,
     applicant_out,
+    can_access_drafts,
     can_edit_basic_info,
     can_review_draft,
     calendar_event_out,
@@ -1236,10 +1238,10 @@ def _draft_outputs(patent_id: str) -> list[dict]:
 @router.get("/patents/{patent_id}/draft")
 def get_draft(patent_id: str, user: dict = Depends(active_user)):
     patent = require_patent(patent_id, user)
-    if not can_review_draft(patent, user):
+    if not can_access_drafts(patent, user):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "Only the assigned Patent Agent or an Admin can open the drafting workspace.",
+            "Only the application owner, the assigned Patent Agent, or an Admin can open drafts.",
         )
     ensure_permission(user, "DRAFTS_VIEW")
     outputs = _draft_outputs(patent_id)
@@ -1267,16 +1269,17 @@ def generate_draft(
     patent_id: str, payload: dict | None = None, user: dict = Depends(active_user)
 ):
     patent = require_patent(patent_id, user)
-    if not (can_review_draft(patent, user)):
+    if not can_access_drafts(patent, user):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "Only the assigned Patent Agent or an Admin can generate drafts.",
+            "Only the application owner, the assigned Patent Agent, or an Admin can generate drafts.",
         )
     ensure_permission(user, "DRAFTS_GENERATE")
-    if patent.get("application_status") != "Under Review":
+    if patent.get("application_status") not in DRAFTABLE_STATUSES:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            'Draft generation requires the application to be "Under Review".',
+            "Drafts can be generated while the application is still in a "
+            "pre-filing status (Draft through Draft Generated).",
         )
     questionnaire = _questionnaire(patent_id)
     if questionnaire.get("questionnaire_status") != "Completed":
@@ -1380,10 +1383,10 @@ def draft_versions(
     patent_id: str, section_type: str, user: dict = Depends(active_user)
 ):
     patent = require_patent(patent_id, user)
-    if not can_review_draft(patent, user):
+    if not can_access_drafts(patent, user):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "Only the assigned Patent Agent or an Admin can view draft history.",
+            "Only the application owner, the assigned Patent Agent, or an Admin can view draft history.",
         )
     ensure_permission(user, "DRAFTS_VIEW")
     if section_type not in drafting.SECTION_TYPES:

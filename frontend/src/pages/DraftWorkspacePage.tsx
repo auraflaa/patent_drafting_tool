@@ -23,6 +23,19 @@ import {
 
 type Tab = "drafting" | "basic-info" | "questionnaire" | "collaboration";
 
+// Pre-filing statuses where AI drafting is allowed; mirrors backend
+// DRAFTABLE_STATUSES in app/services/projections.py (the backend stays the
+// guard — this only avoids rendering dead buttons).
+const DRAFTABLE_STATUSES: ReadonlySet<string> = new Set([
+  "Draft",
+  "Submitted",
+  "Awaiting Patent Agent Acceptance",
+  "Under Review",
+  "Changes Requested",
+  "Ready for Draft Generation",
+  "Draft Generated",
+]);
+
 export default function DraftWorkspacePage() {
   const { id } = useParams<{ id: string }>();
   const patentId = id ?? "";
@@ -142,7 +155,10 @@ export default function DraftWorkspacePage() {
     );
   }
 
-  const canGenerate = patent.application_status === "Under Review";
+  // Mirrors backend DRAFTABLE_STATUSES (services/projections.py): drafting is
+  // pre-filing work. The backend remains the guard; this only avoids
+  // rendering dead buttons.
+  const canGenerate = DRAFTABLE_STATUSES.has(patent.application_status);
   const anySectionGenerated = slots.some((s) => s.latest !== null);
 
   return (
@@ -170,8 +186,8 @@ export default function DraftWorkspacePage() {
 
       {!canGenerate && (
         <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
-          AI drafting is only available once you've accepted this assignment
-          (status must be "Under Review"). Current status:{" "}
+          AI drafting is available while the application is in a pre-filing
+          status (Draft through Draft Generated). Current status:{" "}
           {patent.application_status}.
         </p>
       )}

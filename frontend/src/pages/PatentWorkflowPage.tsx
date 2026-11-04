@@ -6,10 +6,11 @@ import { StatusBadge } from "../components/StatusBadge";
 import { CollaborationPanel } from "../components/CollaborationPanel";
 import { LoadingState } from "../components/LoadingState";
 import { BasicInfoTab, QuestionnaireTab } from "../components/PatentDetailTabs";
+import { DraftsTab } from "../components/DraftsTab";
 import { apiFetch, getFriendlyError } from "../lib/api";
 import { type PatentOut } from "../lib/types";
 
-type Tab = "basic-info" | "questionnaire" | "collaboration";
+type Tab = "basic-info" | "questionnaire" | "collaboration" | "drafts";
 
 export default function PatentWorkflowPage() {
   const { id } = useParams<{ id: string }>();
@@ -36,6 +37,14 @@ export default function PatentWorkflowPage() {
   }, [patentId]);
 
   const isDraft = patent?.application_status === "Draft";
+  // Drafts are readable/generatable by the review chain or the owner; the
+  // backend enforces the same rule, so the tab is hidden (not erroring) for
+  // anyone else.
+  const canDraft =
+    patent !== null &&
+    (patent.created_by === user?.id ||
+      user?.roles.some((r) => r === "ADMIN" || r === "SUPER_ADMIN") === true ||
+      patent.assigned_patent_agent_id === user?.id);
   const canRecall =
     patent?.application_status === "Submitted" &&
     (user?.id === patent.created_by ||
@@ -140,6 +149,7 @@ export default function PatentWorkflowPage() {
             ["basic-info", "Basic Information"],
             ["questionnaire", "Questionnaire"],
             ["collaboration", "Files & Comments"],
+            ...(canDraft ? [["drafts", "AI Drafts"] as [Tab, string]] : []),
           ] as [Tab, string][]
         ).map(([key, label]) => (
           <button
@@ -162,8 +172,10 @@ export default function PatentWorkflowPage() {
         <BasicInfoTab patentId={patentId} editable={isDraft} />
       ) : tab === "questionnaire" ? (
         <QuestionnaireTab patentId={patentId} editable={isDraft} />
-      ) : (
+      ) : tab === "collaboration" ? (
         <CollaborationPanel patentId={patentId} canManageCalendar={false} />
+      ) : (
+        <DraftsTab patentId={patentId} canGenerate={canDraft} />
       )}
     </DashboardShell>
   );

@@ -42,6 +42,21 @@ AGENT_ACTIVE_STATUSES = {
     "FER Response Submitted",
     "Hearing Scheduled",
 }
+
+# Draft generation is pre-filing work: the questionnaire must be Completed,
+# and the application must not have moved past the drafting stages. Unknown
+# future statuses fail closed (not listed = not draftable).
+DRAFTABLE_STATUSES = frozenset(
+    {
+        "Draft",
+        "Submitted",
+        "Awaiting Patent Agent Acceptance",
+        "Under Review",
+        "Changes Requested",
+        "Ready for Draft Generation",
+        "Draft Generated",
+    }
+)
 CALENDAR_EVENT_TYPES = ("Filing Deadline", "Examination", "Hearing", "Reminder")
 
 ACCOUNT_STATUS_API = {
@@ -300,6 +315,16 @@ def can_edit_basic_info(patent: dict, user: dict) -> bool:
 
 def can_review_draft(patent: dict, user: dict) -> bool:
     return is_admin(user) or patent.get("assigned_patent_agent_id") == user["uid"]
+
+
+def can_access_drafts(patent: dict, user: dict) -> bool:
+    """Who may read or generate AI drafts: the review chain or the owner.
+
+    Innovators hold DRAFTS_VIEW/DRAFTS_GENERATE so they can iterate on
+    their own applications before (and while) an agent is involved; the
+    ownership check keeps other teams' drafts closed to them.
+    """
+    return can_review_draft(patent, user) or is_patent_creator(patent, user)
 
 
 def active_assignment_count(agent_uid: str) -> int:
