@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { apiDownload, apiFetch, apiUpload } from "../lib/api";
+import { apiDownload, apiFetch, apiUpload, getFriendlyError, getRuntimeCapabilities, LONG_REQUEST_TIMEOUT_MS } from "../lib/api";
+import { FiguresStrip } from "./FiguresStrip";
+import { formatFileSize } from "../lib/format";
+import type { RuntimeCapabilities } from "../lib/api";
 import { LoadingState } from "./LoadingState";
 import { EmptyState } from "./EmptyState";
 import {
@@ -13,19 +16,56 @@ import {
 
 type SubTab = "comments" | "files" | "calendar";
 
-function formatBytes(bytes: number | null): string {
-  if (bytes === null) return "—";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
   });
+}
+
+const EXTRACTION_STYLES: Record<
+  string,
+  { label: string; className: string }
+> = {
+  not_analyzed: { label: "Not analysed", className: "bg-slate-100 text-slate-500" },
+  pending: { label: "Reading…", className: "bg-slate-100 text-slate-600" },
+  ready: { label: "Ready for drafting", className: "bg-emerald-100 text-emerald-700" },
+  failed: { label: "Extraction failed", className: "bg-red-100 text-red-700" },
+  unsupported: { label: "No text extraction", className: "bg-slate-100 text-slate-500" },
+  unavailable: {
+    label: "Extraction unavailable",
+    className: "bg-amber-100 text-amber-700",
+  },
+};
+
+/** Shows whether the drafting model can read this upload. */
+function ExtractionBadge({ file }: { file: FileOut }) {
+  const style = EXTRACTION_STYLES[file.extraction_status] ?? EXTRACTION_STYLES.pending;
+  const detail = [
+    file.extraction_text_available ? "text" : null,
+    file.extraction_figure_count
+      ? `${file.extraction_figure_count} figure${file.extraction_figure_count === 1 ? "" : "s"}`
+      : null,
+    file.extraction_page_count
+      ? `${file.extraction_page_count} page${file.extraction_page_count === 1 ? "" : "s"}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const title =
+    file.extraction_status === "not_analyzed"
+      ? "This file was uploaded before documents were read for drafting. Re-upload it to use its text and figures as context."
+      : file.extraction_error ??
+        (detail ? `Extracted ${detail}` : "No readable text was found in this file.");
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${style.className}`}
+      title={title}
+    >
+      {style.label}
+    </span>
+  );
 }
 
 /** Comments, supporting Files, and Calendar Events for one patent
@@ -36,14 +76,14 @@ export function CollaborationPanel({
   patentId,
   canManageCalendar,
 }: {
-  patentId: number;
+  patentId: string;
   canManageCalendar: boolean;
 }) {
   const [subTab, setSubTab] = useState<SubTab>("comments");
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white">
-      <div className="flex gap-1 border-b border-slate-200 px-4 pt-2">
+      <div className="flex gap-1 border-b border-slate-200 px-4 pt-2" role="tablist" aria-label="Collaboration sections">
         {(
           [
             ["comments", "Comments"],
@@ -53,6 +93,8 @@ export function CollaborationPanel({
         ).map(([key, label]) => (
           <button
             key={key}
+            role="tab"
+            aria-selected={subTab === key}
             onClick={() => setSubTab(key)}
             className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${
               subTab === key
@@ -79,7 +121,7 @@ export function CollaborationPanel({
 // Comments
 // ---------------------------------------------------------------------------
 
-function CommentsSection({ patentId }: { patentId: number }) {
+function CommentsSection({ patentId }: { patentId: string }) {
   const { user } = useAuth();
   const [comments, setComments] = useState<CommentOut[] | null>(null);
   const [text, setText] = useState("");
@@ -90,7 +132,7 @@ function CommentsSection({ patentId }: { patentId: number }) {
     try {
       setComments(await apiFetch<CommentOut[]>(`/api/patents/${patentId}/comments`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load comments");
+      setError(getFriendlyError("CollaborationPanel.catch1", err, "Failed to load comments"));
     }
   }
 
@@ -112,7 +154,7 @@ function CommentsSection({ patentId }: { patentId: number }) {
       setText("");
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to post comment");
+      setError(getFriendlyError("CollaborationPanel.catch2", err, "Failed to post comment"));
     } finally {
       setBusy(false);
     }
@@ -148,6 +190,7 @@ function CommentsSection({ patentId }: { patentId: number }) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Add a comment…"
+          aria-label="Add a comment"
           maxLength={5000}
           className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
         />
@@ -167,19 +210,29 @@ function CommentsSection({ patentId }: { patentId: number }) {
 // Files
 // ---------------------------------------------------------------------------
 
-function FilesSection({ patentId }: { patentId: number }) {
-  const { user, hasRole } = useAuth();
+function FilesSection({ patentId }: { patentId: string }) {
+  const { user, hasRole, hasPermission } = useAuth();
   const isAdmin = hasRole("ADMIN") || hasRole("SUPER_ADMIN");
+  // Mirrors the backend rule: uploaders may remove their own file, while the
+  // catalogued FILES_DELETE grant is what allows deleting someone else's.
+  const canDeleteAny = isAdmin || hasPermission("FILES_DELETE");
   const [files, setFiles] = useState<FileOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [capabilities, setCapabilities] = useState<RuntimeCapabilities | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    getRuntimeCapabilities()
+      .then(setCapabilities)
+      .catch(() => setCapabilities(null));
+  }, []);
 
   async function load() {
     try {
       setFiles(await apiFetch<FileOut[]>(`/api/patents/${patentId}/files`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load files");
+      setError(getFriendlyError("CollaborationPanel.catch3", err, "Failed to load files"));
     }
   }
 
@@ -197,7 +250,7 @@ function FilesSection({ patentId }: { patentId: number }) {
       await apiUpload(`/api/patents/${patentId}/files`, file);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to upload file");
+      setError(getFriendlyError("CollaborationPanel.catch4", err, "Failed to upload file"));
     } finally {
       setBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -211,7 +264,19 @@ function FilesSection({ patentId }: { patentId: number }) {
         f.original_file_name ?? `file-${f.id}`
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to download file");
+      setError(getFriendlyError("CollaborationPanel.catch5", err, "Failed to download file"));
+    }
+  }
+
+  async function downloadExtractedText(f: FileOut) {
+    const stem = (f.original_file_name ?? `file-${f.id}`).replace(/\.[^.]+$/, "");
+    try {
+      await apiDownload(
+        `/api/patents/${patentId}/files/${f.id}/text`,
+        `${stem}-extracted.md`
+      );
+    } catch (err) {
+      setError(getFriendlyError("CollaborationPanel.catch6", err, "Failed to download extracted text"));
     }
   }
 
@@ -222,7 +287,24 @@ function FilesSection({ patentId }: { patentId: number }) {
       await apiFetch(`/api/patents/${patentId}/files/${f.id}`, { method: "DELETE" });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete file");
+      setError(getFriendlyError("CollaborationPanel.catch7", err, "Failed to delete file"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function classify() {
+    setBusy(true);
+    setError(null);
+    try {
+      const out = await apiFetch<{ classified: number; warning?: string }>(
+        `/api/patents/${patentId}/figures/classify`,
+        { method: "POST", timeoutMs: LONG_REQUEST_TIMEOUT_MS },
+      );
+      if (out.warning) setError(out.warning);
+      await load();
+    } catch (err) {
+      setError(getFriendlyError("CollaborationPanel.classify", err, "Failed to classify drawings"));
     } finally {
       setBusy(false);
     }
@@ -240,12 +322,18 @@ function FilesSection({ patentId }: { patentId: number }) {
         {files?.map((f) => (
           <div
             key={f.id}
-            className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2"
+            className="rounded-md border border-slate-200 px-3 py-2"
           >
+            <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-800">{f.original_file_name}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium text-slate-800">
+                  {f.original_file_name}
+                </p>
+                <ExtractionBadge file={f} />
+              </div>
               <p className="text-xs text-slate-400">
-                {formatBytes(f.file_size_bytes)} · {f.uploaded_by_name ?? "Unknown"} ·{" "}
+                {formatFileSize(f.file_size_bytes)} · {f.uploaded_by_name ?? "Unknown"} ·{" "}
                 {formatDateTime(f.created_at)}
               </p>
             </div>
@@ -256,7 +344,16 @@ function FilesSection({ patentId }: { patentId: number }) {
               >
                 Download
               </button>
-              {(isAdmin || f.uploaded_by === user?.id) && (
+              {f.extraction_text_available && (
+                <button
+                  onClick={() => downloadExtractedText(f)}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  title="The text the drafting model reads for this file"
+                >
+                  Extracted text
+                </button>
+              )}
+              {(canDeleteAny || f.uploaded_by === user?.id) && (
                 <button
                   onClick={() => remove(f)}
                   disabled={busy}
@@ -266,6 +363,8 @@ function FilesSection({ patentId }: { patentId: number }) {
                 </button>
               )}
             </div>
+            </div>
+            <FiguresStrip patentId={patentId} file={f} />
           </div>
         ))}
       </div>
@@ -274,11 +373,26 @@ function FilesSection({ patentId }: { patentId: number }) {
         <input
           ref={fileInputRef}
           type="file"
+          accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.png,.jpg,.jpeg"
           onChange={onFileChosen}
           disabled={busy}
           className="text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-slate-700"
         />
-        <p className="mt-1 text-xs text-slate-400">Max 10MB. Executable files aren't allowed.</p>
+        <p className="mt-1 text-xs text-slate-400">
+          {capabilities
+            ? `Up to ${formatFileSize(capabilities.max_upload_size_bytes)} per upload, stored compressed in Firestore (about ${formatFileSize(capabilities.max_stored_size_bytes)} after compression).`
+            : "Files are stored compressed in Firestore."}{" "}
+          PDF, Word, PowerPoint, text, Markdown and image files are read for drafting context.
+          Diagrams and sketches (PNG/JPEG) become figure candidates for the drawings sheet.
+        </p>
+        <button
+          onClick={classify}
+          disabled={busy}
+          title="Ask the vision model to judge drawing candidates (needs AI vision enabled)"
+          className="mt-2 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        >
+          {busy ? "Classifying…" : "Classify drawings with vision"}
+        </button>
       </div>
     </div>
   );
@@ -293,7 +407,7 @@ const EMPTY_EVENT: CalendarEventCreate = {
   event_date: "",
 };
 
-function CalendarSection({ patentId, canManage }: { patentId: number; canManage: boolean }) {
+function CalendarSection({ patentId, canManage }: { patentId: string; canManage: boolean }) {
   const [events, setEvents] = useState<CalendarEventOut[] | null>(null);
   const [form, setForm] = useState<CalendarEventCreate>(EMPTY_EVENT);
   const [error, setError] = useState<string | null>(null);
@@ -303,7 +417,7 @@ function CalendarSection({ patentId, canManage }: { patentId: number; canManage:
     try {
       setEvents(await apiFetch<CalendarEventOut[]>(`/api/patents/${patentId}/calendar-events`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load calendar events");
+      setError(getFriendlyError("CollaborationPanel.catch8", err, "Failed to load calendar events"));
     }
   }
 
@@ -328,20 +442,20 @@ function CalendarSection({ patentId, canManage }: { patentId: number; canManage:
       setForm(EMPTY_EVENT);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create event");
+      setError(getFriendlyError("CollaborationPanel.catch9", err, "Failed to create event"));
     } finally {
       setBusy(false);
     }
   }
 
-  async function remove(id: number) {
+  async function remove(id: string) {
     setBusy(true);
     setError(null);
     try {
       await apiFetch(`/api/patents/${patentId}/calendar-events/${id}`, { method: "DELETE" });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete event");
+      setError(getFriendlyError("CollaborationPanel.catch10", err, "Failed to delete event"));
     } finally {
       setBusy(false);
     }

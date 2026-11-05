@@ -7,6 +7,8 @@ storage_data/
 storage_data_test/
 .env
 .env.example
+secrets/
+.trace/
 tests/
 .git/
 *.md

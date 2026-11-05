@@ -1,13 +1,10 @@
-// Shared, reusable Basic Information + Questionnaire tabs, extracted from
-// PatentWorkflowPage.tsx (the Innovator's editable workflow view) so the
-// exact same, already-correct components can be reused read-only for
-// Agent (DraftWorkspacePage) and Admin (AdminPatentDetailPage) — closes
-// open item #13. Every field/panel below was already gated on an
-// `editable` prop before this extraction, so passing `editable={false}`
-// is all a read-only caller needs to do; no new read-only-specific code
-// was written.
+// Shared, reusable Basic Information + Questionnaire tabs. The same
+// components serve the Innovator's editable workflow view and the read-only
+// Agent (DraftWorkspacePage) and Admin (AdminPatentDetailPage) views: every
+// field/panel below is gated on an `editable` prop, so passing
+// `editable={false}` is all a read-only caller needs.
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../lib/api";
+import { apiFetch, getFriendlyError } from "../lib/api";
 import { LoadingState } from "./LoadingState";
 import { EmptyState } from "./EmptyState";
 import {
@@ -66,7 +63,7 @@ export function BasicInfoTab({
   patentId,
   editable,
 }: {
-  patentId: number;
+  patentId: string;
   editable: boolean;
 }) {
   return (
@@ -81,14 +78,14 @@ function ApplicantsPanel({
   patentId,
   editable,
 }: {
-  patentId: number;
+  patentId: string;
   editable: boolean;
 }) {
   const [applicants, setApplicants] = useState<ApplicantOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<ApplicantInput>(EMPTY_APPLICANT);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -98,7 +95,7 @@ function ApplicantsPanel({
       setApplicants(data);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load applicants",
+        getFriendlyError("PatentDetailTabs.loadApplicants", err, "Failed to load applicants"),
       );
     }
   }
@@ -148,13 +145,13 @@ function ApplicantsPanel({
       resetForm();
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save applicant");
+      setError(getFriendlyError("PatentDetailTabs.catch1", err, "Failed to save applicant"));
     } finally {
       setBusy(false);
     }
   }
 
-  async function remove(id: number) {
+  async function remove(id: string) {
     setBusy(true);
     setError(null);
     try {
@@ -165,7 +162,7 @@ function ApplicantsPanel({
       await load();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to remove applicant",
+        getFriendlyError("PatentDetailTabs.removeApplicant", err, "Failed to remove applicant"),
       );
     } finally {
       setBusy(false);
@@ -194,7 +191,7 @@ function ApplicantsPanel({
       setApplicants(result);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to reorder applicants",
+        getFriendlyError("PatentDetailTabs.reorderApplicants", err, "Failed to reorder applicants"),
       );
     } finally {
       setBusy(false);
@@ -280,6 +277,7 @@ function ApplicantsPanel({
         >
           <select
             value={form.applicant_type}
+            aria-label="Applicant type"
             onChange={(e) =>
               setForm({
                 ...form,
@@ -297,6 +295,7 @@ function ApplicantsPanel({
           <input
             type="text"
             placeholder="Full name / organization name"
+            aria-label="Full name or organization name"
             value={form.full_name_or_org_name}
             onChange={(e) =>
               setForm({ ...form, full_name_or_org_name: e.target.value })
@@ -306,6 +305,7 @@ function ApplicantsPanel({
           <input
             type="text"
             placeholder="Address"
+            aria-label="Address"
             value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })}
             className="col-span-2 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -313,6 +313,7 @@ function ApplicantsPanel({
           <input
             type="text"
             placeholder="Country"
+            aria-label="Country"
             value={form.country}
             onChange={(e) => setForm({ ...form, country: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -320,6 +321,7 @@ function ApplicantsPanel({
           <input
             type="text"
             placeholder="Postal code"
+            aria-label="Postal code"
             value={form.postal_code}
             onChange={(e) => setForm({ ...form, postal_code: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -327,6 +329,7 @@ function ApplicantsPanel({
           <input
             type="email"
             placeholder="Email"
+            aria-label="Email"
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -334,6 +337,7 @@ function ApplicantsPanel({
           <input
             type="text"
             placeholder="Phone"
+            aria-label="Phone"
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -376,14 +380,14 @@ function InventorsPanel({
   patentId,
   editable,
 }: {
-  patentId: number;
+  patentId: string;
   editable: boolean;
 }) {
   const [inventors, setInventors] = useState<InventorOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<InventorInput>(EMPTY_INVENTOR);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -392,7 +396,7 @@ function InventorsPanel({
       );
       setInventors(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load inventors");
+      setError(getFriendlyError("PatentDetailTabs.catch2", err, "Failed to load inventors"));
     }
   }
 
@@ -439,13 +443,13 @@ function InventorsPanel({
       resetForm();
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save inventor");
+      setError(getFriendlyError("PatentDetailTabs.catch3", err, "Failed to save inventor"));
     } finally {
       setBusy(false);
     }
   }
 
-  async function remove(id: number) {
+  async function remove(id: string) {
     setBusy(true);
     setError(null);
     try {
@@ -456,7 +460,7 @@ function InventorsPanel({
       await load();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to remove inventor",
+        getFriendlyError("PatentDetailTabs.removeInventor", err, "Failed to remove inventor"),
       );
     } finally {
       setBusy(false);
@@ -485,7 +489,7 @@ function InventorsPanel({
       setInventors(result);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to reorder inventors",
+        getFriendlyError("PatentDetailTabs.reorderInventors", err, "Failed to reorder inventors"),
       );
     } finally {
       setBusy(false);
@@ -561,6 +565,7 @@ function InventorsPanel({
           <input
             type="text"
             placeholder="Full name"
+            aria-label="Full name"
             value={form.full_name}
             onChange={(e) => setForm({ ...form, full_name: e.target.value })}
             className="col-span-2 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -568,6 +573,7 @@ function InventorsPanel({
           <input
             type="text"
             placeholder="Address"
+            aria-label="Address"
             value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })}
             className="col-span-2 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -575,6 +581,7 @@ function InventorsPanel({
           <input
             type="text"
             placeholder="Country"
+            aria-label="Country"
             value={form.country}
             onChange={(e) => setForm({ ...form, country: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -582,6 +589,7 @@ function InventorsPanel({
           <input
             type="text"
             placeholder="Postal code"
+            aria-label="Postal code"
             value={form.postal_code}
             onChange={(e) => setForm({ ...form, postal_code: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -589,6 +597,7 @@ function InventorsPanel({
           <input
             type="email"
             placeholder="Email"
+            aria-label="Email"
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -596,6 +605,7 @@ function InventorsPanel({
           <input
             type="text"
             placeholder="Phone"
+            aria-label="Phone"
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -626,14 +636,45 @@ function InventorsPanel({
 
 // ---------------------------------------------------------------------------
 // Questionnaire
-// Questionnaire
 // ---------------------------------------------------------------------------
+
+/** Every field the PATCH endpoint accepts; submit persists them all first. */
+const QUESTIONNAIRE_FIELDS: (keyof QuestionnaireUpdateInput)[] = [
+  "invention_type",
+  "problem_statement",
+  "proposed_solution",
+  "novelty_description",
+  "technical_description",
+  "advantages",
+  "prior_art",
+  "keywords",
+  "has_existing_drawings",
+  "invention_keyword",
+  "title_keyword",
+  "problem_keyword",
+  "claim_keyword",
+  "data1",
+  "data2",
+  "field",
+  "domain",
+  "area",
+  "one_line_about_field",
+  "two_lines_about_domain",
+  "three_lines_about_area",
+  "four_lines_about_problem",
+  "four_lines_about_solution",
+  "advantage1",
+  "advantage2",
+  "exemplary_scenario",
+  "detailed_exemplary_scenario",
+  "best_working_method",
+];
 
 export function QuestionnaireTab({
   patentId,
   editable,
 }: {
-  patentId: number;
+  patentId: string;
   editable: boolean;
 }) {
   const [q, setQ] = useState<QuestionnaireOut | null>(null);
@@ -665,10 +706,29 @@ export function QuestionnaireTab({
         prior_art: data.prior_art,
         keywords: data.keywords,
         has_existing_drawings: data.has_existing_drawings,
+        invention_keyword: data.invention_keyword,
+        title_keyword: data.title_keyword,
+        problem_keyword: data.problem_keyword,
+        claim_keyword: data.claim_keyword,
+        data1: data.data1,
+        data2: data.data2,
+        field: data.field,
+        domain: data.domain,
+        area: data.area,
+        one_line_about_field: data.one_line_about_field,
+        two_lines_about_domain: data.two_lines_about_domain,
+        three_lines_about_area: data.three_lines_about_area,
+        four_lines_about_problem: data.four_lines_about_problem,
+        four_lines_about_solution: data.four_lines_about_solution,
+        advantage1: data.advantage1,
+        advantage2: data.advantage2,
+        exemplary_scenario: data.exemplary_scenario,
+        detailed_exemplary_scenario: data.detailed_exemplary_scenario,
+        best_working_method: data.best_working_method,
       });
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load questionnaire",
+        getFriendlyError("PatentDetailTabs.loadQuestionnaire", err, "Failed to load questionnaire"),
       );
     }
   }
@@ -686,7 +746,7 @@ export function QuestionnaireTab({
       setVersions(data);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load version history",
+        getFriendlyError("PatentDetailTabs.loadVersions", err, "Failed to load version history"),
       );
     }
   }
@@ -713,7 +773,7 @@ export function QuestionnaireTab({
       setSaveMsg("Saved");
       setTimeout(() => setSaveMsg(null), 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+      setError(getFriendlyError("PatentDetailTabs.catch4", err, "Failed to save"));
     } finally {
       setBusySection(null);
     }
@@ -723,6 +783,18 @@ export function QuestionnaireTab({
     setSubmitBusy(true);
     setError(null);
     try {
+      // Persist unsaved edits first: the backend validates the stored copy, so
+      // a field typed but never saved would be reported as missing.
+      const payload: QuestionnaireUpdateInput = {};
+      for (const f of QUESTIONNAIRE_FIELDS)
+        (payload as Record<string, unknown>)[f] = draft[f] ?? null;
+      await apiFetch<QuestionnaireOut>(
+        `/api/patents/${patentId}/questionnaire`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        },
+      );
       const updated = await apiFetch<QuestionnaireOut>(
         `/api/patents/${patentId}/questionnaire/submit`,
         { method: "POST" },
@@ -730,7 +802,7 @@ export function QuestionnaireTab({
       setQ(updated);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to submit questionnaire",
+        getFriendlyError("PatentDetailTabs.submitQuestionnaire", err, "Failed to submit questionnaire"),
       );
     } finally {
       setSubmitBusy(false);
@@ -887,7 +959,12 @@ export function QuestionnaireTab({
         editable={editable}
         busy={busySection === "additional"}
         onSave={() =>
-          saveSection("additional", ["advantages", "prior_art", "keywords"])
+          saveSection("additional", [
+            "advantages",
+            "prior_art",
+            "keywords",
+            "has_existing_drawings",
+          ])
         }
       >
         <QField
@@ -922,6 +999,223 @@ export function QuestionnaireTab({
           />
           I already have drawings/diagrams for this invention (optional)
         </label>
+      </QSection>
+
+      <QSection
+        title="Invention Identity"
+        editable={editable}
+        busy={busySection === "identity"}
+        onSave={() =>
+          saveSection("identity", [
+            "invention_keyword",
+            "title_keyword",
+            "problem_keyword",
+            "claim_keyword",
+            "data1",
+            "data2",
+          ])
+        }
+      >
+        <QField
+          label="Invention keyword"
+          value={draft.invention_keyword}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, invention_keyword: v })}
+          placeholder="Short noun phrase used in the title, description and claims."
+          rows={1}
+        />
+        <QField
+          label="Title keyword"
+          value={draft.title_keyword}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, title_keyword: v })}
+          placeholder="After “A SYSTEM AND METHOD FOR ENABLING”; uppercase."
+          rows={1}
+        />
+        <QField
+          label="Problem keyword"
+          value={draft.problem_keyword}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, problem_keyword: v })}
+          placeholder="Short noun phrase for the problem."
+          rows={1}
+        />
+        <QField
+          label="Claim subject"
+          value={draft.claim_keyword}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, claim_keyword: v })}
+          placeholder="Short noun phrase the claims are about."
+          rows={1}
+        />
+        <QField
+          label="Claim component 1"
+          value={draft.data1}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, data1: v })}
+          placeholder="First component of the claim subject."
+          rows={1}
+        />
+        <QField
+          label="Claim component 2"
+          value={draft.data2}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, data2: v })}
+          placeholder="Second component of the claim subject."
+          rows={1}
+        />
+      </QSection>
+
+      <QSection
+        title="Technical Field"
+        editable={editable}
+        busy={busySection === "field"}
+        onSave={() => saveSection("field", ["field", "domain", "area"])}
+      >
+        <QField
+          label="Field of invention"
+          value={draft.field}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, field: v })}
+          placeholder="Broad field, e.g. renewable energy."
+          rows={1}
+        />
+        <QField
+          label="Domain"
+          value={draft.domain}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, domain: v })}
+          placeholder="Specific domain, e.g. photovoltaic systems."
+          rows={1}
+        />
+        <QField
+          label="Area"
+          value={draft.area}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, area: v })}
+          placeholder="Narrow area, e.g. panel maintenance."
+          rows={1}
+        />
+      </QSection>
+
+      <QSection
+        title="Background"
+        editable={editable}
+        busy={busySection === "form-background"}
+        onSave={() =>
+          saveSection("form-background", [
+            "one_line_about_field",
+            "two_lines_about_domain",
+            "three_lines_about_area",
+            "four_lines_about_problem",
+          ])
+        }
+      >
+        <QField
+          label="One line about the field"
+          value={draft.one_line_about_field}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, one_line_about_field: v })}
+          placeholder="One sentence on the field."
+        />
+        <QField
+          label="Two lines about the domain"
+          value={draft.two_lines_about_domain}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, two_lines_about_domain: v })}
+          placeholder="Two sentences on the domain."
+        />
+        <QField
+          label="Three lines about the area"
+          value={draft.three_lines_about_area}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, three_lines_about_area: v })}
+          placeholder="Three sentences on the area."
+        />
+        <QField
+          label="Four lines about the problem"
+          value={draft.four_lines_about_problem}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, four_lines_about_problem: v })}
+          placeholder="Four lines describing the problem."
+          rows={4}
+        />
+      </QSection>
+
+      <QSection
+        title="Solution"
+        editable={editable}
+        busy={busySection === "form-solution"}
+        onSave={() =>
+          saveSection("form-solution", [
+            "four_lines_about_solution",
+            "advantage1",
+            "advantage2",
+          ])
+        }
+      >
+        <QField
+          label="Four lines about the solution"
+          value={draft.four_lines_about_solution}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, four_lines_about_solution: v })}
+          placeholder="Four lines describing the solution."
+          rows={4}
+        />
+        <QField
+          label="First object"
+          value={draft.advantage1}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, advantage1: v })}
+          placeholder="Primary object or advantage of the invention."
+        />
+        <QField
+          label="Second object"
+          value={draft.advantage2}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, advantage2: v })}
+          placeholder="Secondary object or advantage of the invention."
+        />
+      </QSection>
+
+      <QSection
+        title="Embodiments"
+        editable={editable}
+        busy={busySection === "form-embodiments"}
+        onSave={() =>
+          saveSection("form-embodiments", [
+            "exemplary_scenario",
+            "detailed_exemplary_scenario",
+            "best_working_method",
+          ])
+        }
+      >
+        <QField
+          label="Exemplary scenario"
+          value={draft.exemplary_scenario}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, exemplary_scenario: v })}
+          placeholder="A concrete example scenario of the invention."
+          rows={4}
+        />
+        <QField
+          label="Detailed exemplary scenario"
+          value={draft.detailed_exemplary_scenario}
+          editable={editable}
+          onChange={(v) =>
+            setDraft({ ...draft, detailed_exemplary_scenario: v })
+          }
+          placeholder="A detailed, step-by-step example."
+          rows={5}
+        />
+        <QField
+          label="Best working method"
+          value={draft.best_working_method}
+          editable={editable}
+          onChange={(v) => setDraft({ ...draft, best_working_method: v })}
+          placeholder="The preferred way to carry out the invention."
+          rows={4}
+        />
       </QSection>
 
       {saveMsg && <p className="text-xs text-emerald-600">{saveMsg}</p>}

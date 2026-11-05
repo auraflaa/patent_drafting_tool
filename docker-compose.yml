@@ -1,52 +1,55 @@
+# Local full-stack stack: the real production image plus the built frontend.
+#
+# Not how the project is deployed — that is a single container on a PaaS
+# (see DEPLOYMENT.md). This file exists so a contributor can exercise the
+# gunicorn-served image and the Firebase-configured UI together instead of
+# only `uvicorn --reload` + `npm run dev`.
+#
+# Firebase (Auth and Firestore, which also stores the documents) is external:
+# point backend/.env at a Firebase project (or the Emulator Suite) before
+# starting. There is no database container and no bucket any more — Firestore
+# is the only system of record.
+
 services:
-  postgres:
-    image: postgres:17
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: patent_platform
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # Redis is intentionally NOT included yet — it's added once Phase 6
-  # (long-running AI refinement) or Phase 7 (multi-document generation)
-  # actually needs a Celery broker. See the Kiro build guide, Phase 1.
-
-  # Phase 10 — for local full-stack testing of the production Docker image
-  # (`docker compose up` gives you postgres + a real gunicorn-served
-  # backend, not just `uvicorn --reload`). NOT how this project is
-  # actually deployed — the target is Koyeb (a single-container PaaS, see
-  # DEPLOYMENT.md), which builds straight from backend/Dockerfile and
-  # doesn't use this compose file at all. DATABASE_URL is overridden below
-  # to the in-network "postgres" hostname; backend/.env's own value
-  # (localhost) is for running the backend directly on the host instead.
   backend:
     build:
       context: ./backend
     restart: unless-stopped
     env_file:
       - ./backend/.env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/patent_platform
+    # The service-account JSON is mounted, never baked into the image
+    # (see DEPLOYMENT.md). Without this, FIREBASE_SERVICE_ACCOUNT_PATH
+    # points nowhere and /health stays degraded.
+    volumes:
+      - ./backend/secrets:/app/secrets:ro
+    # The host port is configurable because 8000 is a popular local port
+    # (and `frontend/.env` → VITE_API_URL must match whatever you pick).
     ports:
-      - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - "${BACKEND_PORT:-8000}:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status in (200, 503) else 1)"]
       interval: 30s
       timeout: 5s
       retries: 5
+      # /health returns 503 until Firebase credentials resolve (by design:
+      # the probe is unretried and the app stays usable for setup), so both
+      # codes count as "up" — only a connection failure or a 500 fails it.
       start_period: 20s
 
-volumes:
-  pgdata:
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Vite inlines VITE_* at build time, so these must be build args, not
+        # runtime environment variables.
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+        VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY:-}
+        VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN:-}
+        VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID:-}
+        VITE_FIREBASE_MESSAGING_SENDER_ID: ${VITE_FIREBASE_MESSAGING_SENDER_ID:-}
+        VITE_FIREBASE_APP_ID: ${VITE_FIREBASE_APP_ID:-}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - backend

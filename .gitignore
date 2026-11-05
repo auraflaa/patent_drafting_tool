@@ -3,6 +3,7 @@ backend/.env
 frontend/.env
 .env
 .env.*
+.env.*.local
 !.env.example
 backend/secrets/*
 !backend/secrets/.gitkeep
@@ -10,6 +11,23 @@ secrets/
 *.pem
 *.key
 firebase-service-account*.json
+*-firebase-adminsdk-*.json
+serviceAccountKey.json
+
+# --- Google Cloud / Firebase credentials (catch-all) ---
+*.gcp.json
+*credentials*.json
+*service-account*.json
+
+# --- Firebase CLI (local caches and debug logs) ---
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+storage-debug.log*
+database-debug.log*
+pubsub-debug.log*
+ui-debug.log*
+emulator-debug.log*
 
 # --- Python ---
 venv/
@@ -38,9 +56,12 @@ yarn-error.log*
 # --- Local reference clones (never commit; see CONTRIBUTING.md) ---
 ref-repos/
 
-# --- Local dev scripts (never commit) ---
+# --- Local tooling output ---
+.trace/
+backend/.trace/
+
+# --- Local dev scripts (never commit; see CONTRIBUTING.md) ---
 start.bat
-scripts/start.bat
 
 # --- Model weights (never commit; mount or download per AGENTS.md) ---
 *.onnx

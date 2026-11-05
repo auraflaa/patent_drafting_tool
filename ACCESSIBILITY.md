@@ -20,18 +20,16 @@
 | Routing / structure | Semantic landmarks via `DashboardShell` (header + main), descriptive page titles per dashboard |
 | Auth gates | `ProtectedRoute` redirects (`/login`, `/pending-approval`, `/not-authorized`) render plain-text explanations, not bare redirects |
 | Status communication | `StatusBadge` pairs color with text; status colors centralized in `src/lib/types.ts` (`STATUS_COLOR`) |
-| Forms | React Hook Form + Zod validation with inline error text; labels on login, questionnaire, and workflow inputs |
+| Forms | Controlled inputs with inline error text and labels on login, questionnaire, and workflow fields |
 | Notifications | `NotificationBell` exposes unread count as text (`{count}`), not color-only; dropdown is button-triggered |
 | Calendar | FullCalendar month view with text event titles; agenda list available via FullCalendar's list affordances |
-| Reports | Recharts visuals paired with `DashboardSummaryCards` numeric summaries |
-| PDF preview | `react-pdf` text-layer rendering where the source PDF has selectable text |
+| Reports | Table reports paired with `DashboardSummaryCards` numeric summaries |
 
 ## 3. Known gaps (help wanted)
 
 | Gap | Impact | Tracking guidance |
 |---|---|---|
 | FullCalendar density + keyboard grid navigation | Keyboard-only users may struggle with dense month cells | Label issues `a11y` + `calendar`; propose list-view default or roving-tabindex fixes |
-| `react-pdf` scanned-image PDFs have no text layer | Screen readers get an empty canvas for image-only uploads | Require selectable-text PDFs or provide transcript fallbacks |
 | Color-contrast debt in Tailwind defaults | Some muted grays may fail 4.5:1 body-text contrast | Audit with axe/Lighthouse; fix tokens in `tailwind.config.js` |
 | Focus-visible styling is implicit (browser default) | Low-vision keyboard users lose track of focus | Add explicit `:focus-visible` rings in `index.css` |
 | No `prefers-reduced-motion` handling | Motion-sensitive users get full animation | Add media-query guard for transitions |

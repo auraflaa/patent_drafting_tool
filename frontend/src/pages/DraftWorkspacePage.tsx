@@ -4,9 +4,14 @@ import { DashboardShell } from "../components/DashboardShell";
 import { DocumentGenerationPanel } from "../components/DocumentGenerationPanel";
 import { CollaborationPanel } from "../components/CollaborationPanel";
 import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { StatusBadge } from "../components/StatusBadge";
 import { BasicInfoTab, QuestionnaireTab } from "../components/PatentDetailTabs";
-import { apiFetch } from "../lib/api";
+import { RefinePanel } from "../components/RefinePanel";
+import { FormsPanel } from "../components/FormsPanel";
+import { apiFetch, getFriendlyError, LONG_REQUEST_TIMEOUT_MS } from "../lib/api";
+import { homePathFor } from "../lib/roles";
+import { useAuth } from "../context/AuthContext";
 import {
   SECTION_LABELS,
   SECTION_TYPES,
@@ -18,9 +23,23 @@ import {
 
 type Tab = "drafting" | "basic-info" | "questionnaire" | "collaboration";
 
+// Pre-filing statuses where AI drafting is allowed; mirrors backend
+// DRAFTABLE_STATUSES in app/services/projections.py (the backend stays the
+// guard — this only avoids rendering dead buttons).
+const DRAFTABLE_STATUSES: ReadonlySet<string> = new Set([
+  "Draft",
+  "Submitted",
+  "Awaiting Patent Agent Acceptance",
+  "Under Review",
+  "Changes Requested",
+  "Ready for Draft Generation",
+  "Draft Generated",
+]);
+
 export default function DraftWorkspacePage() {
-  const { id } = useParams();
-  const patentId = Number(id);
+  const { id } = useParams<{ id: string }>();
+  const patentId = id ?? "";
+  const { user } = useAuth();
 
   const [patent, setPatent] = useState<PatentOut | null>(null);
   const [slots, setSlots] = useState<DraftSectionSlot[] | null>(null);
@@ -36,7 +55,7 @@ export default function DraftWorkspacePage() {
     try {
       setPatent(await apiFetch<PatentOut>(`/api/patents/${patentId}`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load patent");
+      setError(getFriendlyError("DraftWorkspacePage.catch1", err, "Failed to load patent"));
     }
   }
 
@@ -47,7 +66,7 @@ export default function DraftWorkspacePage() {
       );
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load draft sections",
+        getFriendlyError("DraftWorkspacePage.loadDraft", err, "Failed to load draft sections"),
       );
     }
   }
@@ -65,10 +84,14 @@ export default function DraftWorkspacePage() {
       await apiFetch(`/api/patents/${patentId}/draft/generate`, {
         method: "POST",
         body: JSON.stringify({}),
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
       });
-      await loadDraft();
+      // New versions invalidate the cached history, and the batch updates
+      // ai_status on the patent.
+      setVersions({});
+      await Promise.all([loadDraft(), loadPatent()]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate draft");
+      setError(getFriendlyError("DraftWorkspacePage.catch2", err, "Failed to generate draft"));
     } finally {
       setGeneratingAll(false);
     }
@@ -81,11 +104,13 @@ export default function DraftWorkspacePage() {
       await apiFetch(`/api/patents/${patentId}/draft/generate`, {
         method: "POST",
         body: JSON.stringify({ section_types: [section] }),
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
       });
-      await loadDraft();
+      setVersions({});
+      await Promise.all([loadDraft(), loadPatent()]);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to regenerate section",
+        getFriendlyError("DraftWorkspacePage.regenerateSection", err, "Failed to regenerate section"),
       );
     } finally {
       setGeneratingSection(null);
@@ -106,7 +131,7 @@ export default function DraftWorkspacePage() {
         setVersions((v) => ({ ...v, [section]: data }));
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Failed to load version history",
+          getFriendlyError("DraftWorkspacePage.loadVersions", err, "Failed to load version history"),
         );
       }
     }
@@ -116,7 +141,13 @@ export default function DraftWorkspacePage() {
     return (
       <DashboardShell title="AI Drafting">
         {error ? (
-          <p className="text-sm text-red-600">{error}</p>
+          <ErrorState
+            message={error}
+            onRetry={() => {
+              loadPatent();
+              loadDraft();
+            }}
+          />
         ) : (
           <LoadingState />
         )}
@@ -124,14 +155,20 @@ export default function DraftWorkspacePage() {
     );
   }
 
-  const canGenerate = patent.application_status === "Under Review";
+  // Mirrors backend DRAFTABLE_STATUSES (services/projections.py): drafting is
+  // pre-filing work. The backend remains the guard; this only avoids
+  // rendering dead buttons.
+  const canGenerate = DRAFTABLE_STATUSES.has(patent.application_status);
   const anySectionGenerated = slots.some((s) => s.latest !== null);
 
   return (
     <DashboardShell title="AI Drafting">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <Link to="/agent" className="text-xs text-slate-400 hover:underline">
+          <Link
+            to={homePathFor(user?.roles)}
+            className="text-xs text-slate-400 hover:underline"
+          >
             ← Back to dashboard
           </Link>
           <h2 className="mt-1 text-xl font-semibold text-slate-900">
@@ -149,13 +186,13 @@ export default function DraftWorkspacePage() {
 
       {!canGenerate && (
         <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
-          AI drafting is only available once you've accepted this assignment
-          (status must be "Under Review"). Current status:{" "}
+          AI drafting is available while the application is in a pre-filing
+          status (Draft through Draft Generated). Current status:{" "}
           {patent.application_status}.
         </p>
       )}
 
-      <div className="mb-6 flex gap-1 border-b border-slate-200">
+      <div className="mb-6 flex gap-1 border-b border-slate-200" role="tablist" aria-label="Draft workspace sections">
         {(
           [
             ["drafting", "AI Drafting"],
@@ -166,6 +203,8 @@ export default function DraftWorkspacePage() {
         ).map(([key, label]) => (
           <button
             key={key}
+            role="tab"
+            aria-selected={tab === key}
             onClick={() => setTab(key)}
             className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
               tab === key
@@ -180,7 +219,7 @@ export default function DraftWorkspacePage() {
 
       {tab === "basic-info" ? (
         // Read-only: the Patent Agent can see everything the Innovator
-        // filled in, but never edits it here (closes open item #13).
+        // filled in, but never edits it here.
         <BasicInfoTab patentId={patentId} editable={false} />
       ) : tab === "questionnaire" ? (
         <QuestionnaireTab patentId={patentId} editable={false} />
@@ -298,6 +337,23 @@ export default function DraftWorkspacePage() {
                 slots.find((s) => s.section_type === section)?.latest
                   ?.processing_status === "Completed",
             )}
+            onChanged={loadPatent}
+          />
+
+          <RefinePanel
+            patentId={patentId}
+            canRefine={canGenerate}
+          />
+
+          <FormsPanel
+            patentId={patentId}
+            statusAllowsGeneration={
+              patent.application_status === "Under Review" ||
+              patent.application_status === "Draft Generated"
+            }
+            applicationStatus={patent.application_status}
+            inventionTitle={patent.invention_title}
+            onChanged={loadPatent}
           />
         </>
       )}

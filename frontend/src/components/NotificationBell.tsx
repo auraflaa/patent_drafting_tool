@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { apiFetch } from "../lib/api";
-import { NOTIFICATION_TEXT, ROLE_HOME, type NotificationOut } from "../lib/types";
+import { NOTIFICATION_TEXT, type NotificationOut } from "../lib/types";
+import { patentPathFor } from "../lib/roles";
 
 function timeAgo(iso: string): string {
   const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -44,7 +45,10 @@ export function NotificationBell() {
 
   useEffect(() => {
     loadUnreadCount();
-    const interval = setInterval(loadUnreadCount, 30_000);
+    const interval = setInterval(() => {
+      // Background tabs gain nothing from polling; the count refreshes on focus.
+      if (!document.hidden) loadUnreadCount();
+    }, 30_000);
     return () => clearInterval(interval);
   }, []);
 
@@ -54,8 +58,15 @@ export function NotificationBell() {
         setOpen(false);
       }
     }
+    function onEscape(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
     document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      document.removeEventListener("mousedown", onClickOutside);
+      document.removeEventListener("keydown", onEscape);
+    };
   }, []);
 
   async function toggleOpen() {
@@ -78,15 +89,11 @@ export function NotificationBell() {
     }
     setOpen(false);
     if (n.patent_application_id) {
-      const homeRole = user?.roles[0];
-      const base = homeRole ? ROLE_HOME[homeRole] : "/";
-      const path =
-        homeRole === "INNOVATOR"
-          ? `/innovator/patents/${n.patent_application_id}`
-          : homeRole === "PATENT_AGENT"
-            ? `/agent/patents/${n.patent_application_id}/draft`
-            : base;
-      navigate(path);
+      // A roleless account has no workspace routes; dropping its deep link
+      // on /login would bounce it to /not-authorized with the target lost
+      // anyway. Send it straight to /not-authorized instead of a silent detour.
+      const target = patentPathFor(user?.roles, n.patent_application_id);
+      navigate(target === "/login" ? "/not-authorized" : target);
     }
   }
 
@@ -105,6 +112,8 @@ export function NotificationBell() {
       <button
         onClick={toggleOpen}
         aria-label="Notifications"
+        aria-haspopup="true"
+        aria-expanded={open}
         className="relative rounded-md border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-50"
       >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" className="h-4 w-4">

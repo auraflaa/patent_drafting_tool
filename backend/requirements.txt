@@ -6,5 +6,17 @@ pydantic-settings>=2.7,<3.0
 python-dotenv>=1.0,<2.0
 python-multipart>=0.0.20,<1.0
 python-docx>=1.1,<2.0
+docxtpl>=0.18,<1.0
+# PDF to DOCX conversion for uploads; pure Python, so no LibreOffice is needed.
+pdf2docx>=0.5.8,<1.0
+# Document ingestion. OpenDataLoader reads PDF layout on the CPU but spawns a
+# JVM, so the runtime image needs Java 11+ (see Dockerfile). Figure crops are
+# re-encoded with OpenCV, which pdf2docx already pulls in; it is listed here
+# because ingestion imports it directly.
+opendataloader-pdf>=2.5,<3.0
+opencv-python-headless>=4.8,<6.0
+numpy>=1.24,<3.0
+python-pptx>=0.6.23,<2.0
+# Optional YOLO figure detection; weights are mounted, never committed.
+onnxruntime>=1.18,<2.0
 httpx>=0.28,<1.0
-pytest>=8.3,<9.0

@@ -1,0 +1,14 @@
+rules_version = '2';
+
+// The browser never talks to Firestore directly. Every read and write goes
+// through the FastAPI backend, which authenticates the Firebase ID token and
+// authorizes against Firestore using the Admin SDK. The Admin SDK bypasses
+// these rules, so denying all client access costs the app nothing and keeps a
+// public Web API key from becoming a data-access key.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

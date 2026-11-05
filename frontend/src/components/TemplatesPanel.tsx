@@ -1,18 +1,20 @@
-// Templates admin panel (NEW — closes open item #24 from the handover:
-// there was previously no Templates UI and no real merging). Lets
-// Admin/Super Admin upload a .docx per document_type, see the full
-// version history, activate an older version, or delete a non-active one.
+// Templates admin panel. Lets Admin/Super Admin upload a .docx or .pdf per
+// document_type, see the full version history, activate an older version,
+// or delete a non-active one. PDFs are converted to Word on the server
+// before they are stored.
 //
-// The uploaded .docx is the source of truth for layout/letterhead — this
+// The uploaded file is the source of truth for layout/letterhead — this
 // UI only manages which file is active per document_type; the actual
-// Jinja-in-DOCX merge happens server-side in document_service.py via
-// docxtpl. Placeholders the template author can use:
+// Jinja-in-DOCX merge happens server-side in backend/app/services/documents.py
+// via docxtpl. When no version is active, generation uses the bundled
+// Form_1_Patent_Application.docx. Placeholders a template can use:
 // {{ TITLE }} {{ WATERMARK_TEXT }} {{ ABSTRACT }} {{ BACKGROUND }}
 // {{ SUMMARY }} {{ DESCRIPTION }} {{ CLAIMS }}
 
 import { useEffect, useRef, useState } from "react";
-import { apiFetch, apiUpload } from "../lib/api";
+import { apiFetch, apiUpload, getFriendlyError } from "../lib/api";
 import { LoadingState } from "./LoadingState";
+import { ErrorState } from "./ErrorState";
 import type { TemplateOut } from "../lib/types";
 
 export function TemplatesPanel() {
@@ -21,7 +23,7 @@ export function TemplatesPanel() {
   const [templates, setTemplates] = useState<TemplateOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [uploadWarning, setUploadWarning] = useState<TemplateOut | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -31,7 +33,7 @@ export function TemplatesPanel() {
       setDocumentTypes(types);
       if (types.length > 0) setSelectedType((prev) => prev || types[0]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load document types");
+      setError(getFriendlyError("TemplatesPanel.catch1", err, "Failed to load document types"));
     }
   }
 
@@ -43,7 +45,7 @@ export function TemplatesPanel() {
       );
       setTemplates(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load templates");
+      setError(getFriendlyError("TemplatesPanel.catch2", err, "Failed to load templates"));
     }
   }
 
@@ -58,8 +60,15 @@ export function TemplatesPanel() {
 
   async function handleUpload(file: File) {
     if (!selectedType) return;
-    if (!file.name.toLowerCase().endsWith(".docx")) {
-      setError("Only .docx template files are accepted.");
+    const name = file.name.toLowerCase();
+    const isWord = name.endsWith(".docx");
+    const isPdf = name.endsWith(".pdf");
+    if (!isWord && !isPdf) {
+      setError(
+        name.endsWith(".doc")
+          ? "Legacy .doc templates cannot be read. Save the file as .docx or PDF."
+          : "Templates must be a .docx or .pdf file.",
+      );
       return;
     }
     setUploading(true);
@@ -82,40 +91,45 @@ export function TemplatesPanel() {
       }
       await loadTemplates(selectedType);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      setError(getFriendlyError("TemplatesPanel.catch3", err, "Upload failed"));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
-  async function activate(id: number) {
+  async function activate(id: string) {
     setBusyId(id);
     setError(null);
     try {
       await apiFetch(`/api/templates/${id}/activate`, { method: "POST" });
       await loadTemplates(selectedType);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Activate failed");
+      setError(getFriendlyError("TemplatesPanel.catch4", err, "Activate failed"));
     } finally {
       setBusyId(null);
     }
   }
 
-  async function remove(id: number) {
+  async function remove(id: string) {
     setBusyId(id);
     setError(null);
     try {
       await apiFetch(`/api/templates/${id}`, { method: "DELETE" });
       await loadTemplates(selectedType);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed");
+      setError(getFriendlyError("TemplatesPanel.catch5", err, "Delete failed"));
     } finally {
       setBusyId(null);
     }
   }
 
-  if (documentTypes === null) return <LoadingState />;
+  if (documentTypes === null)
+    return error ? (
+      <ErrorState message={error} onRetry={loadDocumentTypes} />
+    ) : (
+      <LoadingState />
+    );
 
   return (
     <div className="space-y-4">
@@ -158,6 +172,7 @@ export function TemplatesPanel() {
         <div className="flex flex-wrap items-center gap-3">
           <select
             value={selectedType}
+            aria-label="Document type"
             onChange={(e) => setSelectedType(e.target.value)}
             className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
           >
@@ -169,11 +184,12 @@ export function TemplatesPanel() {
           </select>
 
           <label className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 cursor-pointer">
-            {uploading ? "Uploading…" : "Upload new version (.docx)"}
+            {uploading ? "Uploading…" : "Upload new version (.docx or .pdf)"}
             <input
               ref={fileInputRef}
               type="file"
-              accept=".docx"
+              accept=".docx,.pdf"
+              aria-label="Upload template file"
               disabled={uploading}
               className="hidden"
               onChange={(e) => {
@@ -184,7 +200,8 @@ export function TemplatesPanel() {
           </label>
         </div>
         <p className="mt-2 text-xs text-slate-400">
-          Uploading activates the new version immediately. Placeholders the .docx can use:{" "}
+          PDF templates are converted to Word on upload. Uploading activates the new
+          version immediately. Placeholders the .docx can use:{" "}
           <code>{"{{ TITLE }} {{ WATERMARK_TEXT }} {{ ABSTRACT }} {{ BACKGROUND }} {{ SUMMARY }} {{ DESCRIPTION }} {{ CLAIMS }}"}</code>
         </p>
       </div>
@@ -244,7 +261,7 @@ export function TemplatesPanel() {
               <tr>
                 <td colSpan={5} className="px-3 py-6 text-center text-slate-400">
                   No templates uploaded yet for this document type — document generation will
-                  use the plain fallback layout.
+                  use the bundled Form 1 layout.
                 </td>
               </tr>
             )}

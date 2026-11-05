@@ -4,20 +4,15 @@ import { DashboardShell } from "../components/DashboardShell";
 import { StatusBadge } from "../components/StatusBadge";
 import { LoadingState } from "../components/LoadingState";
 import { EmptyState } from "../components/EmptyState";
-import { apiFetch } from "../lib/api";
+import { apiFetch, getFriendlyError } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { ROLE_HOME, type PatentOut } from "../lib/types";
 
-/** Admin's entry point into individual patents — closes open item #13.
+/** Admin's entry point into individual patents.
  * GET /api/patents already returns every application for Admin/Super
- * Admin (visible_patents_query has no team/assignment restriction for
- * those roles), so this is purely a new frontend surface; no backend
- * change was needed.
- *
- * Shared with Super Admin as of open item #38 — same route
- * (/admin/patents), same component, no duplication. The only
- * role-specific bit is the "back" link below, since Super Admin's home
- * is /super-admin, not /admin, and that route requires the ADMIN role. */
+ * Admin, so this is purely a frontend surface. Shared with Super Admin:
+ * same route (/admin/patents), same component. The only role-specific bit
+ * is the "back" link below, since Super Admin's home is /super-admin. */
 export default function AdminPatentsPage() {
   const { user } = useAuth();
   const isSuperAdmin = user?.roles.includes("SUPER_ADMIN") ?? false;
@@ -32,7 +27,9 @@ export default function AdminPatentsPage() {
     apiFetch<PatentOut[]>("/api/patents")
       .then(setPatents)
       .catch((err) =>
-        setError(err instanceof Error ? err.message : "Failed to load applications")
+        setError(
+          getFriendlyError("AdminPatentsPage.loadPatents", err, "Failed to load applications")
+        )
       );
   }, []);
 
@@ -63,6 +60,7 @@ export default function AdminPatentsPage() {
         {statuses.length > 0 && (
           <select
             value={statusFilter}
+            aria-label="Filter by application status"
             onChange={(e) => setStatusFilter(e.target.value)}
             className="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
           >
