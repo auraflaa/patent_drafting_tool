@@ -293,6 +293,16 @@ def test_form2_has_no_sample_specific_prose() -> None:
         "Natural language processing is concerned",
         "Deep learning is a subset",
         "Machine Learning Algorithms",
+        # Fabricated reference numerals and software-domain boilerplate from
+        # the same reference pack (no filing may invent (200)-style numbers
+        # or define microprocessor circuitry in a generic template).
+        "circuitry",
+        "(200)",
+        "(300)",
+        "microprocessor",
+        "baseband",
+        "firmware",
+        "executable content",
     ):
         assert phrase not in text, f"sample-specific prose remains: {phrase!r}"
 
