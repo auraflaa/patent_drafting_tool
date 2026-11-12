@@ -11,10 +11,13 @@ import { ErrorState } from "./ErrorState";
 
 interface Props {
   patentId: string;
-  /** Mirrors the backend gate in generate_forms: Under Review or Draft Generated. */
+  /** Mirrors the backend gate in generate_forms: owner/agent/admin in a
+   * pre-filing status (Draft through Draft Generated). */
   statusAllowsGeneration: boolean;
   applicationStatus: string;
   inventionTitle: string;
+  /** Finalize stays agent/admin-only; owner drafts hide the button. */
+  allowFinalize?: boolean;
   onChanged?: () => void;
 }
 
@@ -27,6 +30,7 @@ export function FormsPanel({
   statusAllowsGeneration,
   applicationStatus,
   inventionTitle,
+  allowFinalize = true,
   onChanged,
 }: Props) {
   const [status, setStatus] = useState<FormsStatusOut | null>(null);
@@ -220,8 +224,9 @@ export function FormsPanel({
 
       {!statusAllowsGeneration && (
         <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
-          Form generation is available once the application is Under Review (current
-          status: {applicationStatus}).
+          Form generation is available while the application is in a pre-filing
+          status (Draft through Draft Generated) with a submitted questionnaire
+          (current status: {applicationStatus}).
         </p>
       )}
 
@@ -265,8 +270,8 @@ export function FormsPanel({
           </p>
           <p className="text-xs text-slate-400">
             Renders FORM1, FORM2, FORM3, FORM5 and the Drawings sheet from the
-            questionnaire. Each generation creates a new version — nothing is
-            overwritten.
+            questionnaire as unsigned drafts. Each generation creates a new
+            version — nothing is overwritten.
           </p>
         </div>
         {statusAllowsGeneration && (
@@ -303,9 +308,11 @@ export function FormsPanel({
           <p className="text-xs text-slate-400">
             Locks the generated set. Requires all five forms, complete fields, and
             at least one usable drawing ({status.usable_figure_count} selected).
+            Only the assigned Patent Agent or an Admin can finalize — drafts stay
+            unsigned either way.
           </p>
         </div>
-        {statusAllowsGeneration && (
+        {statusAllowsGeneration && allowFinalize && (
           <button
             onClick={finalize}
             disabled={!canFinalize || finalizing}

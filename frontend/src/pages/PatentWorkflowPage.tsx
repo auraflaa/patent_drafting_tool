@@ -7,10 +7,24 @@ import { CollaborationPanel } from "../components/CollaborationPanel";
 import { LoadingState } from "../components/LoadingState";
 import { BasicInfoTab, QuestionnaireTab } from "../components/PatentDetailTabs";
 import { DraftsTab } from "../components/DraftsTab";
+import { FormsPanel } from "../components/FormsPanel";
 import { apiFetch, getFriendlyError } from "../lib/api";
 import { type PatentOut } from "../lib/types";
 
-type Tab = "basic-info" | "questionnaire" | "collaboration" | "drafts";
+type Tab = "basic-info" | "questionnaire" | "collaboration" | "drafts" | "forms";
+
+// Pre-filing statuses where drafting is allowed; mirrors backend
+// DRAFTABLE_STATUSES in app/services/projections.py (the backend stays the
+// guard — this only avoids rendering dead buttons).
+const DRAFTABLE_STATUSES: ReadonlySet<string> = new Set([
+  "Draft",
+  "Submitted",
+  "Awaiting Patent Agent Acceptance",
+  "Under Review",
+  "Changes Requested",
+  "Ready for Draft Generation",
+  "Draft Generated",
+]);
 
 export default function PatentWorkflowPage() {
   const { id } = useParams<{ id: string }>();
@@ -48,6 +62,18 @@ export default function PatentWorkflowPage() {
   const canRecall =
     patent?.application_status === "Submitted" &&
     (user?.id === patent.created_by ||
+      user?.roles.some((r) => r === "ADMIN" || r === "SUPER_ADMIN") === true);
+  // Statutory-form drafts are owner/agent/admin self-service from the
+  // questionnaire in any pre-filing status; finalizing stays agent-only.
+  const canUseForms =
+    patent !== null &&
+    DRAFTABLE_STATUSES.has(patent.application_status) &&
+    (patent.created_by === user?.id ||
+      user?.roles.some((r) => r === "ADMIN" || r === "SUPER_ADMIN") === true ||
+      patent.assigned_patent_agent_id === user?.id);
+  const canFinalizeForms =
+    patent !== null &&
+    (patent.assigned_patent_agent_id === user?.id ||
       user?.roles.some((r) => r === "ADMIN" || r === "SUPER_ADMIN") === true);
 
   async function recallApplication() {
@@ -150,6 +176,7 @@ export default function PatentWorkflowPage() {
             ["questionnaire", "Questionnaire"],
             ["collaboration", "Files & Comments"],
             ...(canDraft ? [["drafts", "AI Drafts"] as [Tab, string]] : []),
+            ...(canUseForms ? [["forms", "Forms"] as [Tab, string]] : []),
           ] as [Tab, string][]
         ).map(([key, label]) => (
           <button
@@ -174,8 +201,17 @@ export default function PatentWorkflowPage() {
         <QuestionnaireTab patentId={patentId} editable={isDraft} />
       ) : tab === "collaboration" ? (
         <CollaborationPanel patentId={patentId} canManageCalendar={false} />
-      ) : (
+      ) : tab === "drafts" ? (
         <DraftsTab patentId={patentId} canGenerate={canDraft} />
+      ) : (
+        <FormsPanel
+          patentId={patentId}
+          statusAllowsGeneration={canUseForms}
+          applicationStatus={patent.application_status}
+          inventionTitle={patent.invention_title}
+          allowFinalize={canFinalizeForms}
+          onChanged={loadPatent}
+        />
       )}
     </DashboardShell>
   );

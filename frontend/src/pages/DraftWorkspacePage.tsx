@@ -347,10 +347,7 @@ export default function DraftWorkspacePage() {
 
           <FormsPanel
             patentId={patentId}
-            statusAllowsGeneration={
-              patent.application_status === "Under Review" ||
-              patent.application_status === "Draft Generated"
-            }
+            statusAllowsGeneration={canGenerate}
             applicationStatus={patent.application_status}
             inventionTitle={patent.invention_title}
             onChanged={loadPatent}
