@@ -375,11 +375,15 @@ def test_generate_forms_rejects_unknown_counts_and_long_values(
 
     generated: list = []
     monkeypatch.setattr(
-        resources, "require_patent", lambda *args, **kwargs: {"id": "p1"}
+        resources,
+        "require_patent",
+        lambda *args, **kwargs: {
+            "id": "p1",
+            "application_status": "Under Review",
+            "created_by": "u1",
+        },
     )
     monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
-    monkeypatch.setattr(resources, "_assert_forms_agent", lambda *args: None)
-    monkeypatch.setattr(resources, "_assert_generation_allowed", lambda *args: None)
     monkeypatch.setattr(resources, "query_docs", lambda *args, **kwargs: [])
     monkeypatch.setattr(
         resources,

@@ -68,8 +68,10 @@ DEFAULT_GRANTS: dict[int, set[int]] = {
     3: {1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 23, 24, 25},
     # Innovators draft their own applications (10 = view, 11 = generate);
     # the routes additionally require ownership, so these grants never
-    # open another team's drafts.
-    4: {1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 19, 20, 23, 24, 25},
+    # open another team's drafts. 13 lets owners render their own
+    # unsigned statutory-form drafts from the questionnaire; finalizing
+    # stays agent/admin-only.
+    4: {1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 23, 24, 25},
 }
 
 REPORT_TYPES = (

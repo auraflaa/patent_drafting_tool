@@ -207,12 +207,16 @@ def test_form_status_reports_missing_fields(fakes, monkeypatch):
 
 
 def test_generate_route_rejects_unknown_codes(monkeypatch):
-    monkeypatch.setattr(resources, "require_patent", lambda *args: {"id": "p1"})
-    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
     monkeypatch.setattr(
-        resources, "_assert_forms_agent", lambda patent, user, action: None
+        resources,
+        "require_patent",
+        lambda *args: {
+            "id": "p1",
+            "application_status": "Under Review",
+            "created_by": "u1",
+        },
     )
-    monkeypatch.setattr(resources, "_assert_generation_allowed", lambda patent: None)
+    monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
 
     with pytest.raises(HTTPException) as exc:
         resources.generate_forms("p1", {"codes": ["NOPE"]}, {"uid": "u1"})
@@ -241,13 +245,13 @@ def _route_guards(monkeypatch, status="Under Review"):
     monkeypatch.setattr(
         resources,
         "require_patent",
-        lambda *args: {"id": "p1", "application_status": status},
+        lambda *args: {
+            "id": "p1",
+            "application_status": status,
+            "created_by": "u1",
+        },
     )
     monkeypatch.setattr(resources, "ensure_permission", lambda *args: None)
-    monkeypatch.setattr(
-        resources, "_assert_forms_agent", lambda patent, user, action: None
-    )
-    monkeypatch.setattr(resources, "_assert_generation_allowed", lambda patent: None)
     monkeypatch.setattr(resources, "_reap_stale_jobs", lambda patent_id: None)
 
 

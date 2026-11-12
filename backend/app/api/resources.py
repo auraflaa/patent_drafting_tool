@@ -2408,8 +2408,17 @@ def generate_forms(
 ):
     patent = require_patent(patent_id, user)
     ensure_permission(user, "DOCUMENTS_GENERATE")
-    _assert_forms_agent(patent, user, "generate forms")
-    _assert_generation_allowed(patent)
+    if not can_access_drafts(patent, user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only the application owner, the assigned Patent Agent, or an Admin can generate forms.",
+        )
+    if patent.get("application_status") not in DRAFTABLE_STATUSES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Forms can be generated while the application is still in a "
+            "pre-filing status (Draft through Draft Generated).",
+        )
     codes = payload.get("codes")
     if codes is not None:
         unknown = [code for code in codes if code not in FORM_BY_CODE]

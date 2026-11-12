@@ -97,6 +97,10 @@ def test_innovator_role_holds_draft_permissions() -> None:
 
     assert {10, 11} <= set(DEFAULT_GRANTS[4])
     assert "DRAFTS_GENERATE" in permission_codes({"role_codes": ["INNOVATOR"]})
+    # Owners render their own unsigned statutory-form drafts from the
+    # questionnaire; finalizing stays agent/admin-only.
+    assert 13 in set(DEFAULT_GRANTS[4])
+    assert "DOCUMENTS_GENERATE" in permission_codes({"role_codes": ["INNOVATOR"]})
 
 
 def test_creator_generates_draft_while_in_draft(monkeypatch) -> None:
@@ -182,5 +186,77 @@ def test_generate_refuses_filed_applications(monkeypatch) -> None:
     with pytest.raises(HTTPException) as exc:
         resources.generate_draft(
             "p1", {"section_types": ["ABSTRACT"]}, {"uid": "u1", "role_codes": ["INNOVATOR"]}
+        )
+    assert exc.value.status_code == 400
+
+
+def test_creator_generates_forms_while_in_draft(monkeypatch) -> None:
+    """Statutory-form drafts are owner self-service from the questionnaire.
+
+    No assigned agent, no uploads and no refinement step: the same
+    Completed questionnaire that feeds AI drafts renders the five forms.
+    """
+    from app.api import resources
+
+    patent = {
+        "id": "p1",
+        "application_status": "Draft",
+        "created_by": "u1",
+        "assigned_patent_agent_id": None,
+    }
+    _stub_common(
+        monkeypatch, patent, {"id": "q1", "questionnaire_status": "Completed"}
+    )
+    monkeypatch.setattr(resources, "query_docs", lambda *a, **k: [])
+    monkeypatch.setattr(resources, "_reap_stale_jobs", lambda *a: None)
+    calls: list = []
+    monkeypatch.setattr(
+        resources.form_generation,
+        "generate_form_set",
+        lambda *args, **kwargs: calls.append(kwargs) or {"batch_id": "b1"},
+    )
+
+    out = resources.generate_forms(
+        "p1", {}, {"uid": "u1", "role_codes": ["INNOVATOR"]}
+    )
+
+    assert out == {"batch_id": "b1"}
+    assert calls == [{"codes": None, "counts": {}}]
+
+
+def test_non_creator_innovator_cannot_generate_forms(monkeypatch) -> None:
+    from app.api import resources
+
+    patent = {
+        "id": "p1",
+        "application_status": "Draft",
+        "created_by": "owner",
+        "assigned_patent_agent_id": None,
+    }
+    _stub_common(
+        monkeypatch, patent, {"id": "q1", "questionnaire_status": "Completed"}
+    )
+    with pytest.raises(HTTPException) as exc:
+        resources.generate_forms(
+            "p1", {}, {"uid": "stranger", "role_codes": ["INNOVATOR"]}
+        )
+    assert exc.value.status_code == 403
+
+
+def test_generate_forms_refuses_post_filing_status(monkeypatch) -> None:
+    from app.api import resources
+
+    patent = {
+        "id": "p1",
+        "application_status": "Filed",
+        "created_by": "u1",
+        "assigned_patent_agent_id": None,
+    }
+    _stub_common(
+        monkeypatch, patent, {"id": "q1", "questionnaire_status": "Completed"}
+    )
+    with pytest.raises(HTTPException) as exc:
+        resources.generate_forms(
+            "p1", {}, {"uid": "u1", "role_codes": ["INNOVATOR"]}
         )
     assert exc.value.status_code == 400
