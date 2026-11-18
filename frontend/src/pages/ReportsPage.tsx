@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { DashboardShell } from "../components/DashboardShell";
 import { StatusBadge } from "../components/StatusBadge";
 import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { EmptyState } from "../components/EmptyState";
 import { useAuth } from "../context/AuthContext";
-import { apiDownload, apiFetch, ApiError } from "../lib/api";
+import { apiDownload, apiFetch, ApiError, getFriendlyError } from "../lib/api";
 import type { DashboardSummary, ReportOut, ReportTypeOut } from "../lib/types";
 
 export default function ReportsPage() {
@@ -48,7 +49,11 @@ function DashboardSummaryCards() {
   useEffect(() => {
     apiFetch<DashboardSummary>("/api/reports/dashboard")
       .then(setSummary)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load dashboard"));
+      .catch((err) =>
+        setError(
+          getFriendlyError("ReportsPage.dashboardSummary", err, "Failed to load dashboard")
+        )
+      );
   }, []);
 
   if (error) return <p className="text-sm text-red-600">{error}</p>;
@@ -151,7 +156,7 @@ function ReportBrowser() {
       setTypes(data);
       if (data.length > 0) setSelected((prev) => prev ?? data[0].report_type);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load report types");
+      setError(getFriendlyError("ReportsPage.catch1", err, "Failed to load report types"));
     }
   }
 
@@ -165,7 +170,7 @@ function ReportBrowser() {
     setError(null);
     apiFetch<ReportOut>(`/api/reports/${selected}`)
       .then(setReport)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load report"));
+      .catch((err) => setError(getFriendlyError("ReportsPage.catch2", err, "Failed to load report")));
   }, [selected]);
 
   async function download() {
@@ -178,14 +183,21 @@ function ReportBrowser() {
       if (err instanceof ApiError && err.status === 403) {
         setError("Your role isn't permitted to download this report — ask a Super Admin to grant it.");
       } else {
-        setError(err instanceof Error ? err.message : "Download failed");
+        setError(
+          getFriendlyError("ReportsPage.downloadReport", err, "Download failed")
+        );
       }
     } finally {
       setDownloading(false);
     }
   }
 
-  if (!types) return <LoadingState label="Loading report catalog…" />;
+  if (!types)
+    return error ? (
+      <ErrorState message={error} onRetry={loadTypes} />
+    ) : (
+      <LoadingState label="Loading report catalog…" />
+    );
 
   const selectedMeta = types.find((t) => t.report_type === selected);
   const columns = report && report.rows.length > 0 ? Object.keys(report.rows[0]) : [];
@@ -225,10 +237,12 @@ function ReportBrowser() {
       {selectedMeta && (
         <p className="mb-3 text-xs text-slate-400">{selectedMeta.description}</p>
       )}
-      {error && <p className="mb-3 text-xs text-red-600">{error}</p>}
+      {error && report && (
+        <p className="mb-3 text-xs text-red-600">{error}</p>
+      )}
 
       {!report ? (
-        <LoadingState />
+        error ? <ErrorState message={error} /> : <LoadingState />
       ) : report.rows.length === 0 ? (
         <EmptyState title="No data yet." />
       ) : (

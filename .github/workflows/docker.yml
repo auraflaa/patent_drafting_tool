@@ -1,13 +1,13 @@
 # Docker — build backend + frontend images, smoke-test them.
 #
-# Runs on push to main + PRs. Pushes to GHCR only on main (and only if the
-# build + smoke steps pass). No secrets are baked into either image.
+# Runs on push to main/dev + PRs. Pushes to GHCR only on main (and only if
+# the build + smoke steps pass). No secrets are baked into either image.
 
 name: Docker
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 concurrency:

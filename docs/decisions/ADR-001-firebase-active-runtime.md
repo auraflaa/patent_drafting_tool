@@ -1,7 +1,10 @@
 # ADR-001: Firebase-native backend as the active runtime
 
 ## Status
-Accepted
+Superseded by [ADR-005](./ADR-005-firestore-only-runtime.md) (2026-10-27).
+
+Kept for history: the decision below selected the Firebase runtime but
+deliberately retained the SQL stack as reference. ADR-005 removes it.
 
 ## Date
 2026-10-16
@@ -29,3 +32,5 @@ The Firebase-native stack is the active runtime and deployment target. The Postg
 - Backend authorization lives entirely in `app/core/security.py` + `app/services/repository.py` — Firestore Security Rules do not constrain Admin SDK calls.
 - `backend/tests/` still target the legacy API and must be realigned to the Firebase path (tracked gap; CI runs them as an advisory job).
 - Deployment target shifts from Neon Postgres to a Firebase project; `DATABASE_URL` is legacy-only.
+
+> Superseded on 2026-10-27 by [ADR-005](./ADR-005-firestore-only-runtime.md): the legacy stack, its tests, and these transitional caveats were removed.

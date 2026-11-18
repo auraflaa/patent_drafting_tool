@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { LoadingState } from "./LoadingState";
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -13,8 +14,8 @@ export function ProtectedRoute({ children, requireRole, requirePermission }: Pro
 
   if (status === "loading") {
     return (
-      <div className="flex h-screen items-center justify-center text-slate-500">
-        Loading…
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <LoadingState label="Checking your session…" />
       </div>
     );
   }

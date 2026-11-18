@@ -7,8 +7,9 @@ import { DashboardShell } from "../components/DashboardShell";
 import { LoadingState } from "../components/LoadingState";
 import { EmptyState } from "../components/EmptyState";
 import { useAuth } from "../context/AuthContext";
-import { apiFetch } from "../lib/api";
-import { ROLE_HOME, type CalendarEventOut } from "../lib/types";
+import { apiFetch, getFriendlyError } from "../lib/api";
+import type { CalendarEventOut } from "../lib/types";
+import { patentPathFor } from "../lib/roles";
 
 function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
@@ -36,16 +37,15 @@ export default function CalendarPage() {
       try {
         setEvents(await apiFetch<CalendarEventOut[]>("/api/calendar/events"));
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load calendar events");
+        setError(
+          getFriendlyError("CalendarPage.loadEvents", err, "Failed to load calendar events")
+        );
       }
     })();
   }, []);
 
-  const homeRole = user?.roles[0];
-  function linkFor(patentId: number): string {
-    if (homeRole === "PATENT_AGENT") return `/agent/patents/${patentId}/draft`;
-    if (homeRole === "INNOVATOR") return `/innovator/patents/${patentId}`;
-    return homeRole ? ROLE_HOME[homeRole] : "/";
+  function linkFor(patentId: string): string {
+    return patentPathFor(user?.roles, patentId);
   }
 
   const calendarEvents: EventInput[] = useMemo(
@@ -63,7 +63,7 @@ export default function CalendarPage() {
   );
 
   function onEventClick(arg: EventClickArg) {
-    const patentId = arg.event.extendedProps.patentId as number;
+    const patentId = arg.event.extendedProps.patentId as string;
     navigate(linkFor(patentId));
   }
 

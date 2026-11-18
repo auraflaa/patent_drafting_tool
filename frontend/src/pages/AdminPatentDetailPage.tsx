@@ -5,7 +5,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { CollaborationPanel } from "../components/CollaborationPanel";
 import { LoadingState } from "../components/LoadingState";
 import { BasicInfoTab, QuestionnaireTab } from "../components/PatentDetailTabs";
-import { apiFetch } from "../lib/api";
+import { apiFetch, getFriendlyError } from "../lib/api";
 import { type AvailableAgentOut, type PatentOut } from "../lib/types";
 
 type Tab = "basic-info" | "questionnaire" | "collaboration";
@@ -31,7 +31,7 @@ function ReassignAgentPanel({
 }) {
   const [open, setOpen] = useState(false);
   const [agents, setAgents] = useState<AvailableAgentOut[] | null>(null);
-  const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +49,9 @@ function ReassignAgentPanel({
       const data = await apiFetch<AvailableAgentOut[]>("/api/patents/available-agents");
       setAgents(data.filter((a) => a.id !== patent.assigned_patent_agent_id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load agents");
+      setError(
+        getFriendlyError("AdminPatentDetailPage.availableAgents", err, "Failed to load agents")
+      );
     }
   }
 
@@ -67,7 +69,9 @@ function ReassignAgentPanel({
       setSelectedAgentId(null);
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reassign");
+      setError(
+        getFriendlyError("AdminPatentDetailPage.reassign", err, "Failed to reassign")
+      );
     } finally {
       setBusy(false);
     }
@@ -147,8 +151,8 @@ function ReassignAgentPanel({
  * grants them on the backend, but never edits an applicant's own data
  * from here. */
 export default function AdminPatentDetailPage() {
-  const { id } = useParams();
-  const patentId = Number(id);
+  const { id } = useParams<{ id: string }>();
+  const patentId = id ?? "";
 
   const [patent, setPatent] = useState<PatentOut | null>(null);
   const [tab, setTab] = useState<Tab>("basic-info");
@@ -158,7 +162,9 @@ export default function AdminPatentDetailPage() {
     apiFetch<PatentOut>(`/api/patents/${patentId}`)
       .then(setPatent)
       .catch((err) =>
-        setError(err instanceof Error ? err.message : "Failed to load patent application")
+        setError(
+          getFriendlyError("AdminPatentDetailPage.loadPatent", err, "Failed to load patent application")
+        )
       );
   }, [patentId]);
 
@@ -185,7 +191,15 @@ export default function AdminPatentDetailPage() {
             {patent.invention_title}
           </h2>
         </div>
-        <StatusBadge status={patent.application_status} />
+        <div className="flex items-center gap-3">
+          <Link
+            to={`/admin/patents/${patentId}/draft`}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Drafting workspace
+          </Link>
+          <StatusBadge status={patent.application_status} />
+        </div>
       </div>
 
       {error && (
@@ -205,12 +219,12 @@ export default function AdminPatentDetailPage() {
           apiFetch<PatentOut>(`/api/patents/${patentId}`)
             .then(setPatent)
             .catch((err) =>
-              setError(err instanceof Error ? err.message : "Failed to reload patent application")
+              setError(getFriendlyError("AdminPatentDetailPage.catch1", err, "Failed to reload patent application"))
             )
         }
       />
 
-      <div className="mb-6 flex gap-1 border-b border-slate-200">
+      <div className="mb-6 flex gap-1 border-b border-slate-200" role="tablist" aria-label="Patent sections">
         {(
           [
             ["basic-info", "Basic Information"],
@@ -220,6 +234,8 @@ export default function AdminPatentDetailPage() {
         ).map(([key, label]) => (
           <button
             key={key}
+            role="tab"
+            aria-selected={tab === key}
             onClick={() => setTab(key)}
             className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
               tab === key
@@ -237,8 +253,8 @@ export default function AdminPatentDetailPage() {
       ) : tab === "questionnaire" ? (
         <QuestionnaireTab patentId={patentId} editable={false} />
       ) : (
-        // Admin is one of the two roles (with the assigned Agent) allowed
-        // to manage calendar events server-side — see calendar.py.
+        // Calendar event management is server-gated to the assigned agent
+        // and admins — see the calendar routes in backend/app/api/resources.py.
         <CollaborationPanel patentId={patentId} canManageCalendar={true} />
       )}
     </DashboardShell>

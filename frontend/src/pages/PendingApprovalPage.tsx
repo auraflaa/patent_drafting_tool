@@ -1,24 +1,30 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { ROLE_HOME } from "../lib/types";
+import { homePathFor } from "../lib/roles";
 
 export default function PendingApprovalPage() {
   const { user, status, refreshMe, logout } = useAuth();
   const navigate = useNavigate();
 
-  // Poll every 30s in case a Super Admin approves while this tab is open.
+  // Poll only while approval is still pending. Rejected/Suspended accounts
+  // have no transition to wait for — polling them burns rate-limit budget
+  // on requests whose answer cannot change.
   useEffect(() => {
+    if (status !== "pending" || user?.account_status !== "Pending") return;
     const interval = setInterval(() => {
-      refreshMe();
+      void refreshMe();
     }, 30_000);
     return () => clearInterval(interval);
-  }, [refreshMe]);
+  }, [status, user, refreshMe]);
 
   useEffect(() => {
     if (status === "approved" && user) {
-      const home = user.roles.map((r) => ROLE_HOME[r]).find(Boolean) || "/";
-      navigate(home, { replace: true });
+      const home = homePathFor(user.roles);
+      navigate(home === "/login" ? "/not-authorized" : home, { replace: true });
+    }
+    if (status === "unauthenticated") {
+      navigate("/login", { replace: true });
     }
   }, [status, user, navigate]);
 

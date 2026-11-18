@@ -1,18 +1,35 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { DashboardShell } from "../components/DashboardShell";
 import { StatusBadge } from "../components/StatusBadge";
 import { CollaborationPanel } from "../components/CollaborationPanel";
 import { LoadingState } from "../components/LoadingState";
 import { BasicInfoTab, QuestionnaireTab } from "../components/PatentDetailTabs";
-import { apiFetch } from "../lib/api";
+import { DraftsTab } from "../components/DraftsTab";
+import { FormsPanel } from "../components/FormsPanel";
+import { apiFetch, getFriendlyError } from "../lib/api";
 import { type PatentOut } from "../lib/types";
 
-type Tab = "basic-info" | "questionnaire" | "collaboration";
+type Tab = "basic-info" | "questionnaire" | "collaboration" | "drafts" | "forms";
+
+// Pre-filing statuses where drafting is allowed; mirrors backend
+// DRAFTABLE_STATUSES in app/services/projections.py (the backend stays the
+// guard — this only avoids rendering dead buttons).
+const DRAFTABLE_STATUSES: ReadonlySet<string> = new Set([
+  "Draft",
+  "Submitted",
+  "Awaiting Patent Agent Acceptance",
+  "Under Review",
+  "Changes Requested",
+  "Ready for Draft Generation",
+  "Draft Generated",
+]);
 
 export default function PatentWorkflowPage() {
-  const { id } = useParams();
-  const patentId = Number(id);
+  const { id } = useParams<{ id: string }>();
+  const patentId = id ?? "";
+  const { user } = useAuth();
 
   const [patent, setPatent] = useState<PatentOut | null>(null);
   const [tab, setTab] = useState<Tab>("basic-info");
@@ -24,11 +41,7 @@ export default function PatentWorkflowPage() {
       const data = await apiFetch<PatentOut>(`/api/patents/${patentId}`);
       setPatent(data);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to load patent application",
-      );
+      setError(getFriendlyError("PatentWorkflowPage.loadPatent", err, "Failed to load patent application"));
     }
   }
 
@@ -38,6 +51,44 @@ export default function PatentWorkflowPage() {
   }, [patentId]);
 
   const isDraft = patent?.application_status === "Draft";
+  // Drafts are readable/generatable by the review chain or the owner; the
+  // backend enforces the same rule, so the tab is hidden (not erroring) for
+  // anyone else.
+  const canDraft =
+    patent !== null &&
+    (patent.created_by === user?.id ||
+      user?.roles.some((r) => r === "ADMIN" || r === "SUPER_ADMIN") === true ||
+      patent.assigned_patent_agent_id === user?.id);
+  const canRecall =
+    patent?.application_status === "Submitted" &&
+    (user?.id === patent.created_by ||
+      user?.roles.some((r) => r === "ADMIN" || r === "SUPER_ADMIN") === true);
+  // Statutory-form drafts are owner/agent/admin self-service from the
+  // questionnaire in any pre-filing status; finalizing stays agent-only.
+  const canUseForms =
+    patent !== null &&
+    DRAFTABLE_STATUSES.has(patent.application_status) &&
+    (patent.created_by === user?.id ||
+      user?.roles.some((r) => r === "ADMIN" || r === "SUPER_ADMIN") === true ||
+      patent.assigned_patent_agent_id === user?.id);
+  const canFinalizeForms =
+    patent !== null &&
+    (patent.assigned_patent_agent_id === user?.id ||
+      user?.roles.some((r) => r === "ADMIN" || r === "SUPER_ADMIN") === true);
+
+  async function recallApplication() {
+    if (!window.confirm("Return this application to Draft? You can edit and resubmit it.")) return;
+    setSubmitBusy(true);
+    setError(null);
+    try {
+      await apiFetch(`/api/patents/${patentId}/recall`, { method: "POST" });
+      await loadPatent();
+    } catch (err) {
+      setError(getFriendlyError("PatentWorkflowPage.catch2", err, "Failed to recall"));
+    } finally {
+      setSubmitBusy(false);
+    }
+  }
 
   async function submitApplication() {
     setSubmitBusy(true);
@@ -46,7 +97,7 @@ export default function PatentWorkflowPage() {
       await apiFetch(`/api/patents/${patentId}/submit`, { method: "POST" });
       await loadPatent();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to submit");
+      setError(getFriendlyError("PatentWorkflowPage.catch1", err, "Failed to submit"));
     } finally {
       setSubmitBusy(false);
     }
@@ -89,6 +140,16 @@ export default function PatentWorkflowPage() {
               Submit application
             </button>
           )}
+          {canRecall && (
+            <button
+              onClick={recallApplication}
+              disabled={submitBusy}
+              title="Return to Draft to correct answers, then resubmit"
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Recall to Draft
+            </button>
+          )}
         </div>
       </div>
 
@@ -102,19 +163,26 @@ export default function PatentWorkflowPage() {
         <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
           This application is past Draft — Basic Information and the
           Questionnaire are read-only.
+          {canRecall && (
+            <> Use “Recall to Draft” above to correct answers and resubmit.</>
+          )}
         </p>
       )}
 
-      <div className="mb-6 flex gap-1 border-b border-slate-200">
+      <div className="mb-6 flex gap-1 border-b border-slate-200" role="tablist" aria-label="Patent sections">
         {(
           [
             ["basic-info", "Basic Information"],
             ["questionnaire", "Questionnaire"],
             ["collaboration", "Files & Comments"],
+            ...(canDraft ? [["drafts", "AI Drafts"] as [Tab, string]] : []),
+            ...(canUseForms ? [["forms", "Forms"] as [Tab, string]] : []),
           ] as [Tab, string][]
         ).map(([key, label]) => (
           <button
             key={key}
+            role="tab"
+            aria-selected={tab === key}
             onClick={() => setTab(key)}
             className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
               tab === key
@@ -131,8 +199,19 @@ export default function PatentWorkflowPage() {
         <BasicInfoTab patentId={patentId} editable={isDraft} />
       ) : tab === "questionnaire" ? (
         <QuestionnaireTab patentId={patentId} editable={isDraft} />
-      ) : (
+      ) : tab === "collaboration" ? (
         <CollaborationPanel patentId={patentId} canManageCalendar={false} />
+      ) : tab === "drafts" ? (
+        <DraftsTab patentId={patentId} canGenerate={canDraft} />
+      ) : (
+        <FormsPanel
+          patentId={patentId}
+          statusAllowsGeneration={canUseForms}
+          applicationStatus={patent.application_status}
+          inventionTitle={patent.invention_title}
+          allowFinalize={canFinalizeForms}
+          onChanged={loadPatent}
+        />
       )}
     </DashboardShell>
   );

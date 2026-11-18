@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import { DashboardShell } from "../components/DashboardShell";
 import { StatusBadge } from "../components/StatusBadge";
 import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { EmptyState } from "../components/EmptyState";
-import { apiFetch } from "../lib/api";
+import { apiFetch, getFriendlyError } from "../lib/api";
 import type {
   AvailableAgentOut,
   PatentOut,
@@ -14,7 +15,7 @@ import type {
 
 export default function InnovatorDashboard() {
   const [teams, setTeams] = useState<TeamOut[] | null>(null);
-  const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newTeamName, setNewTeamName] = useState("");
   const [creatingTeam, setCreatingTeam] = useState(false);
@@ -27,7 +28,7 @@ export default function InnovatorDashboard() {
         setSelectedTeamId(data[0].id);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load teams");
+      setError(getFriendlyError("InnovatorDashboard.catch1", err, "Failed to load teams"));
     }
   }
 
@@ -50,7 +51,7 @@ export default function InnovatorDashboard() {
       await loadTeams();
       setSelectedTeamId(team.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create team");
+      setError(getFriendlyError("InnovatorDashboard.catch2", err, "Failed to create team"));
     } finally {
       setCreatingTeam(false);
     }
@@ -94,6 +95,7 @@ export default function InnovatorDashboard() {
               <input
                 type="text"
                 placeholder="New team name"
+                aria-label="New team name"
                 value={newTeamName}
                 onChange={(e) => setNewTeamName(e.target.value)}
                 className="min-w-0 flex-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
@@ -127,7 +129,7 @@ function TeamPanel({
   teamId,
   onTeamsChanged,
 }: {
-  teamId: number;
+  teamId: string;
   onTeamsChanged: () => void;
 }) {
   const [team, setTeam] = useState<TeamDetailOut | null>(null);
@@ -140,14 +142,14 @@ function TeamPanel({
   async function load() {
     setError(null);
     try {
-      const [teamData, allPatents] = await Promise.all([
+      const [teamData, teamPatents] = await Promise.all([
         apiFetch<TeamDetailOut>(`/api/teams/${teamId}`),
-        apiFetch<PatentOut[]>("/api/patents"),
+        apiFetch<PatentOut[]>(`/api/patents?team_id=${encodeURIComponent(teamId)}`),
       ]);
       setTeam(teamData);
-      setPatents(allPatents.filter((p) => p.team_id === teamId));
+      setPatents(teamPatents);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load team");
+      setError(getFriendlyError("InnovatorDashboard.catch3", err, "Failed to load team"));
     }
   }
 
@@ -172,13 +174,13 @@ function TeamPanel({
       await load();
       onTeamsChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add member");
+      setError(getFriendlyError("InnovatorDashboard.catch4", err, "Failed to add member"));
     } finally {
       setBusy(false);
     }
   }
 
-  async function removeMember(userId: number) {
+  async function removeMember(userId: string) {
     setBusy(true);
     setError(null);
     try {
@@ -186,7 +188,7 @@ function TeamPanel({
       await load();
       onTeamsChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove member");
+      setError(getFriendlyError("InnovatorDashboard.catch5", err, "Failed to remove member"));
     } finally {
       setBusy(false);
     }
@@ -206,13 +208,18 @@ function TeamPanel({
       await load();
       onTeamsChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create patent");
+      setError(getFriendlyError("InnovatorDashboard.catch6", err, "Failed to create patent"));
     } finally {
       setBusy(false);
     }
   }
 
-  if (!team) return <LoadingState />;
+  if (!team)
+    return error ? (
+      <ErrorState message={error} onRetry={load} />
+    ) : (
+      <LoadingState />
+    );
 
   return (
     <div className="space-y-6">
@@ -247,6 +254,7 @@ function TeamPanel({
           <input
             type="email"
             placeholder="colleague@example.com"
+            aria-label="Team member email"
             value={memberEmail}
             onChange={(e) => setMemberEmail(e.target.value)}
             className="min-w-0 flex-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
@@ -275,6 +283,7 @@ function TeamPanel({
           <input
             type="text"
             placeholder="Invention title"
+            aria-label="Invention title"
             value={newPatentTitle}
             onChange={(e) => setNewPatentTitle(e.target.value)}
             className="min-w-0 flex-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
@@ -305,7 +314,7 @@ function PatentCard({ patent, onChanged }: { patent: PatentOut; onChanged: () =>
       await apiFetch(`/api/patents/${patent.id}/submit`, { method: "POST" });
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to submit");
+      setError(getFriendlyError("InnovatorDashboard.catch7", err, "Failed to submit"));
     } finally {
       setBusy(false);
     }
@@ -317,11 +326,11 @@ function PatentCard({ patent, onChanged }: { patent: PatentOut; onChanged: () =>
       const data = await apiFetch<AvailableAgentOut[]>("/api/patents/available-agents");
       setAgents(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load agents");
+      setError(getFriendlyError("InnovatorDashboard.catch8", err, "Failed to load agents"));
     }
   }
 
-  async function assignAgent(agentId: number) {
+  async function assignAgent(agentId: string) {
     setBusy(true);
     setError(null);
     try {
@@ -332,7 +341,7 @@ function PatentCard({ patent, onChanged }: { patent: PatentOut; onChanged: () =>
       setShowAgentPicker(false);
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to assign agent");
+      setError(getFriendlyError("InnovatorDashboard.catch9", err, "Failed to assign agent"));
     } finally {
       setBusy(false);
     }
@@ -346,7 +355,7 @@ function PatentCard({ patent, onChanged }: { patent: PatentOut; onChanged: () =>
       setShowAgentPicker(false);
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to auto-assign");
+      setError(getFriendlyError("InnovatorDashboard.catch10", err, "Failed to auto-assign"));
     } finally {
       setBusy(false);
     }

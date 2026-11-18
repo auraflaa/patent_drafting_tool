@@ -7,34 +7,50 @@
 | Backend | `backend/Dockerfile` | `python:3.13-slim` (builder + runtime) | FastAPI via Gunicorn + Uvicorn workers |
 | Frontend | `frontend/Dockerfile` | `node:20-slim` → `nginx:1.27-alpine` | Vite build → static serve with SPA fallback |
 
+Firebase (Auth and Firestore, which also stores the documents) is external to
+both images. There is no database container, no bucket, and no migration step
+(ADR-005, ADR-006).
+
 ## 2. Backend image details
 
 Stages:
 
 1. **builder**: creates `/opt/venv`, `pip install -r requirements.txt`.
-2. **runtime**: installs `libreoffice` + `ca-certificates` (required for DOCX→PDF via headless LibreOffice — the main size cost), creates non-root `appuser` (uid 1000), copies venv + source, `chmod +x docker-entrypoint.sh`, `USER appuser`.
+2. **runtime**: installs `ca-certificates` only — no office suite, because
+   documents are Word-only and PDF uploads are converted by `pdf2docx`.
+   Creates non-root `appuser` (uid 1000), copies the venv + source,
+   `USER appuser`.
 
 ```dockerfile
-# Entrypoint runs `alembic upgrade head` only when alembic is installed AND
-# DATABASE_URL is set (legacy SQL path); on the active Firebase runtime it
-# skips migrations and boots straight into serving. Gunicorn comes from
-# requirements.txt — the image cannot serve without it.
-ENTRYPOINT ["./docker-entrypoint.sh"]
+# No entrypoint: Firestore needs no migrations and there is no boot-time
+# secret materialisation. Configuration comes from the environment exactly as
+# pydantic-settings reads it. Gunicorn is in requirements.txt.
 CMD ["gunicorn", "app.main:app",
      "--worker-class", "uvicorn.workers.UvicornWorker",
-     "--workers", "4",
+     "--workers", "2",
      "--bind", "0.0.0.0:8000",
-     "--access-logfile", "-", "--error-logfile", "-", "--timeout", "120"]
+     "--access-logfile", "-", "--error-logfile", "-", "--timeout", "240"]
 ```
 
-- `EXPOSE 8000`; `HEALTHCHECK` hits `http://localhost:8000/health` (30 s interval, 15 s start period).
-- Env comes from `--env-file` or orchestrator vars (see `backend/.env.example`). `DATABASE_URL` override in Compose is legacy-only; Firebase uses `FIREBASE_*`.
+- `EXPOSE 8000`; `HEALTHCHECK` hits `http://localhost:8000/health` (30 s
+  interval, 15 s start period). `/health` answers `200` when Firebase is
+  reachable and `503` while it is still unconfigured — the check accepts
+  either as "up", because the probe is unretried by design and the app stays
+  usable for setup. The 240 s worker timeout covers a conversion plus
+  extraction on a long filing (the client waits up to 180 s for an upload).
+- Worker count is two on purpose: a PDF conversion or a large blob write
+  occupies a worker for its duration, and the deployment assumes one backend
+  replica (ADR-003).
+- Env comes from `--env-file` or orchestrator variables (see
+  `backend/.env.example`). The service-account JSON is mounted, not copied
+  into the image.
 
 Build + run:
 
 ```powershell
 docker build -t patent-backend ./backend
-docker run -p 8000:8000 --env-file backend/.env patent-backend
+docker run -p 8000:8000 --env-file backend/.env `
+  -v "${PWD}/backend/secrets:/app/secrets:ro" patent-backend
 ```
 
 Verify: `GET http://localhost:8000/health` → `200` once Firebase is reachable.
@@ -43,40 +59,78 @@ Verify: `GET http://localhost:8000/health` → `200` once Firebase is reachable.
 
 Stages:
 
-1. **build** (`node:20-slim`): `npm ci`, copy source, bake `ARG VITE_API_URL` + force `VITE_DEV_LOGIN_ENABLED=false`, `npm run build` → `dist/`.
-2. **serve** (`nginx:1.27-alpine`): copy `dist/` → `/usr/share/nginx/html`, copy `nginx.conf` → `/etc/nginx/conf.d/default.conf`.
+1. **build** (`node:20-slim`): `npm ci`, copy source, bake `VITE_API_URL` and
+   the five `VITE_FIREBASE_*` values as build args, `npm run build` → `dist/`.
+2. **serve** (`nginx:1.27-alpine`): copy `dist/` →
+   `/usr/share/nginx/html`, copy `nginx.conf` →
+   `/etc/nginx/conf.d/default.conf`.
 
 - `EXPOSE 80`; `HEALTHCHECK` via `wget http://localhost/health`.
-- `nginx.conf` provides SPA fallback (all routes → `index.html`) + caching/security headers.
+- `nginx.conf` provides the SPA fallback (all routes → `index.html`) plus
+  caching/security headers.
 
 Build + run:
 
 ```powershell
-# VITE_API_URL is baked at build time — it cannot be changed at container run time.
-docker build --build-arg VITE_API_URL=https://api.example.com -t patent-frontend ./frontend
+# Every VITE_* value is baked at build time — it cannot be changed at run time.
+# Changing frontend/.env (or the host the browser uses: localhost vs LAN IP
+# vs domain) requires rebuilding the image. The nginx CSP's connect-src
+# follows VITE_API_URL automatically at build time, so the rebuilt image
+# permits exactly the API origin it was built against — no manual CSP edits.
+docker build `
+  --build-arg VITE_API_URL=http://localhost:8000 `
+  --build-arg VITE_FIREBASE_API_KEY=... `
+  --build-arg VITE_FIREBASE_AUTH_DOMAIN=my-project.firebaseapp.com `
+  --build-arg VITE_FIREBASE_PROJECT_ID=my-project `
+  --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID=... `
+  --build-arg VITE_FIREBASE_APP_ID=... `
+  -t patent-frontend ./frontend
 docker run -p 8080:80 patent-frontend
 ```
 
-Verify: open http://localhost:8080 → login page; confirm API calls hit the baked URL (DevTools Network).
+Verify: open http://localhost:8080 → login page; confirm API calls hit the
+baked URL (DevTools → Network). Missing Firebase values render a
+configuration banner instead of the Google button.
 
-## 4. Compose (local full-stack)
+## 4. Compose (local full stack)
 
 `docker-compose.yml` services:
 
 | Service | Image | Ports | Notes |
 |---|---|---|---|
-| `postgres` | `postgres:17` | `5432:5432` | `patent_platform` DB, `pgdata` volume, `pg_isready` healthcheck. Legacy reference; Firebase path ignores it. |
-| `backend` | Built from `./backend` | `8000:8000` | `env_file: ./backend/.env` + `DATABASE_URL` override to `postgres` host; `depends_on: postgres healthy`; `/health` healthcheck. |
+| `backend` | Built from `./backend` | `${BACKEND_PORT:-8000}:8000` | `env_file: ./backend/.env`; `/health` healthcheck; Firebase external |
+| `frontend` | Built from `./frontend` | `${FRONTEND_PORT:-5173}:80` | Firebase + API URL passed as build args; `depends_on: backend` |
 
 ```powershell
+# Export the Firebase Web SDK values first — they are build args.
+$env:VITE_API_URL = "http://localhost:8000"
+$env:VITE_FIREBASE_API_KEY = "..."
+# ...
 docker compose up --build
-docker compose down -v  # also removes pgdata
+docker compose down
 ```
 
-Redis is intentionally absent (added only when long-running AI refinement needs a Celery broker).
+What to check:
+
+- Backend logs show Gunicorn workers binding `0.0.0.0:8000`.
+- `GET http://localhost:8000/health` → `200` with a real Firebase project.
+- The frontend origin is registered under Firebase Authentication →
+  Authorized domains (`localhost` is there by default).
+
+There is no Postgres service, no `pgdata` volume, and no `DATABASE_URL`
+override. Redis is absent until a job queue actually needs it.
 
 ## 5. Production notes
 
-- Backend: expose `8000`, health check `GET /health`, single replica (in-memory rate limiting; boot migrations race with >1 replica). Set `ENVIRONMENT=production` + real Firebase/CORS/hosts values (see `DEPLOYMENT.md` §3).
-- Frontend: pass the real backend URL as `VITE_API_URL` build arg; serve `dist/` statically or via the nginx image; add SPA rewrite (`/*` → `index.html`) on static hosts.
-- Never bake secrets into images — pass via env at run time (backend) and keep `secrets/*.json` out of build contexts (`.dockerignore` covers it).
+- Backend: expose `8000`, health check `GET /health`, **one replica** until
+  document generation moves to a job queue (ADR-003). Set
+  `ENVIRONMENT=production`, a real `CORS_ORIGINS`, and the real
+  `ALLOWED_HOSTS` (see `DEPLOYMENT.md` §2).
+- Frontend: pass the real backend URL and the real Firebase Web SDK values as
+  build args; serve `dist/` statically or via the nginx image with an SPA
+  rewrite.
+- Never bake secrets into images — the service-account JSON is mounted or
+  injected at run time, and `secrets/*.json` is excluded by `.dockerignore`
+  and `.gitignore`.
+- `gunicorn` does not run on Windows (`fcntl`); use the Linux image in
+  production and `uvicorn --reload` for local development.

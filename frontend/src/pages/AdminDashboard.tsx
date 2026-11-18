@@ -1,7 +1,5 @@
-// Admin route tree — user approvals belong to Super Admin only per spec
-// (see handover §2/§3.1). Templates management (closes open item #24) and
-// the read-only All Patents view (closes open item #13) are Admin-scoped
-// workflows; more land here as later phases add features.
+// Admin route tree: user approvals are Super Admin-only; templates
+// management and the read-only All Patents view are Admin-scoped.
 
 import { Link } from "react-router-dom";
 import { DashboardShell } from "../components/DashboardShell";
@@ -28,7 +26,8 @@ export default function AdminDashboard() {
       <div className="mb-6 border-b border-slate-200 pb-2">
         <h2 className="text-sm font-semibold text-slate-900">Document Templates</h2>
         <p className="text-xs text-slate-500">
-          Upload and manage the .docx templates used when generating patent documents.
+          Upload and manage the Word or PDF templates used when generating patent
+          documents. Until one is uploaded, generation uses the bundled Form 1 layout.
         </p>
       </div>
       <TemplatesPanel />

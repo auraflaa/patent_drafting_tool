@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import { DashboardShell } from "../components/DashboardShell";
 import { TemplatesPanel } from "../components/TemplatesPanel";
 import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { EmptyState } from "../components/EmptyState";
-import { apiFetch } from "../lib/api";
+import { apiFetch, getFriendlyError } from "../lib/api";
 import type {
   PendingUserOut,
   RbacMatrixResponse,
@@ -20,7 +21,7 @@ export default function SuperAdminDashboard() {
 
   return (
     <DashboardShell title="Super Admin">
-      <div className="mb-6 flex gap-1 border-b border-slate-200">
+      <div className="mb-6 flex gap-1 border-b border-slate-200" role="tablist" aria-label="Super Admin sections">
         <TabButton active={tab === "pending"} onClick={() => setTab("pending")}>
           Pending Approvals
         </TabButton>
@@ -30,24 +31,19 @@ export default function SuperAdminDashboard() {
         <TabButton active={tab === "users"} onClick={() => setTab("users")}>
           All Users
         </TabButton>
-        {/* NEW — closes open item #24 */}
         <TabButton active={tab === "templates"} onClick={() => setTab("templates")}>
           Templates
         </TabButton>
-        {/* NEW — Phase 9. Which report types (app/api/reports.py's
-            /permissions/matrix) each role may download, independent of
-            the ordinary Role & Permission Matrix's REPORTS_VIEW/
-            REPORTS_DOWNLOAD codes above. */}
+        {/* Report types each role may download, independent of the ordinary
+            Role & Permission Matrix's REPORTS_VIEW/REPORTS_DOWNLOAD codes. */}
         <TabButton
           active={tab === "report-permissions"}
           onClick={() => setTab("report-permissions")}
         >
           Report Download Permissions
         </TabButton>
-        {/* NEW — closes open item #38. Not a tab like the others: it's a
-            real navigation into the shared /admin/patents route (same
-            AdminPatentsPage/AdminPatentDetailPage components Admin uses),
-            not inline content, so it's styled like a tab but is a Link. */}
+        {/* Not a tab like the others: a real navigation into the shared
+            /admin/patents route, styled like a tab but a Link. */}
         <Link
           to="/admin/patents"
           className="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-slate-500 transition hover:text-slate-700"
@@ -76,6 +72,8 @@ function TabButton({
 }) {
   return (
     <button
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
       className={`border-b-2 px-4 py-2 text-sm font-medium transition ${
         active
@@ -95,15 +93,15 @@ function TabButton({
 function PendingApprovalsPanel() {
   const [pending, setPending] = useState<PendingUserOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedRoles, setSelectedRoles] = useState<Record<number, Set<string>>>({});
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const [selectedRoles, setSelectedRoles] = useState<Record<string, Set<string>>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   async function load() {
     try {
       const data = await apiFetch<PendingUserOut[]>("/api/auth/pending-users");
       setPending(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load pending users");
+      setError(getFriendlyError("SuperAdminDashboard.catch1", err, "Failed to load pending users"));
     }
   }
 
@@ -111,7 +109,7 @@ function PendingApprovalsPanel() {
     load();
   }, []);
 
-  function toggleRole(userId: number, role: string) {
+  function toggleRole(userId: string, role: string) {
     setSelectedRoles((prev) => {
       const current = new Set(prev[userId] ?? []);
       if (current.has(role)) current.delete(role);
@@ -120,7 +118,7 @@ function PendingApprovalsPanel() {
     });
   }
 
-  async function approve(userId: number) {
+  async function approve(userId: string) {
     const roles = Array.from(selectedRoles[userId] ?? []);
     if (roles.length === 0) {
       setError("Select at least one role before approving.");
@@ -135,13 +133,13 @@ function PendingApprovalsPanel() {
       });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Approval failed");
+      setError(getFriendlyError("SuperAdminDashboard.catch2", err, "Approval failed"));
     } finally {
       setBusyId(null);
     }
   }
 
-  async function reject(userId: number) {
+  async function reject(userId: string) {
     setBusyId(userId);
     setError(null);
     try {
@@ -151,13 +149,18 @@ function PendingApprovalsPanel() {
       });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Rejection failed");
+      setError(getFriendlyError("SuperAdminDashboard.catch3", err, "Rejection failed"));
     } finally {
       setBusyId(null);
     }
   }
 
-  if (pending === null) return <LoadingState />;
+  if (pending === null)
+    return error ? (
+      <ErrorState message={error} onRetry={load} />
+    ) : (
+      <LoadingState />
+    );
 
   return (
     <div className="space-y-4">
@@ -165,12 +168,17 @@ function PendingApprovalsPanel() {
       {pending.length === 0 && (
         <EmptyState title="No accounts awaiting approval." />
       )}
-      {pending.map((u) => (
+      {pending.map((u) => {
+        // Nameless rows (synthetic/test imports) still need an identifier.
+        const title = u.full_name || u.email || u.id;
+        return (
         <div key={u.id} className="rounded-lg border border-slate-200 bg-white p-4">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-900">{u.full_name}</p>
-              <p className="text-xs text-slate-500">{u.email}</p>
+              <p className="text-sm font-medium text-slate-900">{title}</p>
+              {u.email && u.email !== title && (
+                <p className="text-xs text-slate-500">{u.email}</p>
+              )}
               {u.organization && (
                 <p className="text-xs text-slate-400">{u.organization}</p>
               )}
@@ -213,7 +221,8 @@ function PendingApprovalsPanel() {
             </button>
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -232,7 +241,7 @@ function RbacMatrixPanel() {
       const data = await apiFetch<RbacMatrixResponse>("/api/rbac/matrix");
       setMatrix(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load matrix");
+      setError(getFriendlyError("SuperAdminDashboard.catch4", err, "Failed to load matrix"));
     }
   }
 
@@ -240,7 +249,12 @@ function RbacMatrixPanel() {
     load();
   }, []);
 
-  if (!matrix) return <LoadingState />;
+  if (!matrix)
+    return error ? (
+      <ErrorState message={error} onRetry={load} />
+    ) : (
+      <LoadingState />
+    );
 
   const isGranted = (roleId: number, permId: number) =>
     matrix.grants.some((g) => g.role_id === roleId && g.permission_id === permId);
@@ -256,7 +270,7 @@ function RbacMatrixPanel() {
       );
       setMatrix(updated);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Toggle failed");
+      setError(getFriendlyError("SuperAdminDashboard.catch5", err, "Toggle failed"));
     } finally {
       setPendingCell(null);
     }
@@ -353,7 +367,7 @@ function ReportPermissionsPanel() {
       );
       setMatrix(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load report permissions");
+      setError(getFriendlyError("SuperAdminDashboard.catch6", err, "Failed to load report permissions"));
     }
   }
 
@@ -361,7 +375,12 @@ function ReportPermissionsPanel() {
     load();
   }, []);
 
-  if (!matrix) return <LoadingState />;
+  if (!matrix)
+    return error ? (
+      <ErrorState message={error} onRetry={load} />
+    ) : (
+      <LoadingState />
+    );
 
   const isGranted = (roleId: number, reportType: string) =>
     matrix.grants.some((g) => g.role_id === roleId && g.report_type === reportType);
@@ -377,7 +396,7 @@ function ReportPermissionsPanel() {
       );
       setMatrix(updated);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Toggle failed");
+      setError(getFriendlyError("SuperAdminDashboard.catch7", err, "Toggle failed"));
     } finally {
       setPendingCell(null);
     }
@@ -449,7 +468,7 @@ function AllUsersPanel() {
       const data = await apiFetch<UserAdminOut[]>("/api/rbac/users");
       setUsers(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load users");
+      setError(getFriendlyError("SuperAdminDashboard.catch8", err, "Failed to load users"));
     }
   }
 
@@ -457,7 +476,7 @@ function AllUsersPanel() {
     load();
   }, []);
 
-  async function assignRole(userId: number, role: string) {
+  async function assignRole(userId: string, role: string) {
     const key = `assign-${userId}-${role}`;
     setBusyKey(key);
     setError(null);
@@ -468,13 +487,13 @@ function AllUsersPanel() {
       });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Assign failed");
+      setError(getFriendlyError("SuperAdminDashboard.catch9", err, "Assign failed"));
     } finally {
       setBusyKey(null);
     }
   }
 
-  async function revokeRole(userId: number, role: string) {
+  async function revokeRole(userId: string, role: string) {
     const key = `revoke-${userId}-${role}`;
     setBusyKey(key);
     setError(null);
@@ -482,13 +501,18 @@ function AllUsersPanel() {
       await apiFetch(`/api/rbac/users/${userId}/roles/${role}`, { method: "DELETE" });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Revoke failed");
+      setError(getFriendlyError("SuperAdminDashboard.catch10", err, "Revoke failed"));
     } finally {
       setBusyKey(null);
     }
   }
 
-  if (!users) return <LoadingState />;
+  if (!users)
+    return error ? (
+      <ErrorState message={error} onRetry={load} />
+    ) : (
+      <LoadingState />
+    );
 
   return (
     <div className="space-y-3">

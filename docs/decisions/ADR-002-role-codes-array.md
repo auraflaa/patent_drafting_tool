@@ -28,3 +28,4 @@ Roles are stored as a `role_codes: string[]` array on the user document. Guards 
 - Role checks cost one user-document read per request (already required for `account_status` gating, so no extra round trip).
 - Role revocation takes effect on the next request — no token-refresh lag.
 - Roles are data, not identity: never trust client-supplied role values; assignment is `SUPER_ADMIN`-only server-side (bootstrap email excepted on first run).
+- The REST API exposes the same array as `roles` (via `app/services/projections.py`); the stored field stays `role_codes` so Firestore queries and the guard helpers keep one spelling. Do not rename the stored field without an ADR.

@@ -6,4 +6,15 @@ export default defineConfig({
   server: {
     port: 5173,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/firebase") || id.includes("node_modules/@firebase")) {
+            return "vendor-firebase";
+          }
+        },
+      },
+    },
+  },
 });

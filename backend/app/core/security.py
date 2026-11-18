@@ -1,49 +1,194 @@
+"""Firebase Authentication guards and user-profile bootstrap.
+
+Firebase verifies the ID token; Firestore stores the authorization profile
+(`role_codes` array, `account_status`). Roles are never trusted from the
+client (ADR-002). Legacy SQL users/JWT helpers are gone — see ADR-005.
+"""
+import logging
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from app.core.firebase import verify_id_token, FirebaseNotConfigured, db
+
 from app.core.config import settings
+from app.core.firebase import (
+    FirebaseNotConfigured,
+    TokenUnverifiable,
+    db,
+    verify_id_token,
+)
+from app.services.repository import get_doc_or_none, now_iso
+
+logger = logging.getLogger(__name__)
 
 bearer = HTTPBearer(auto_error=False)
 
-def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> dict:
+APPROVED = "approved"
+
+
+def _bootstrap_email(email: str) -> bool:
+    return bool(
+        settings.bootstrap_admin_email
+        and email
+        and email.lower() == settings.bootstrap_admin_email.lower()
+    )
+
+
+def _new_profile(uid: str, claims: dict) -> dict:
+    email = (claims.get("email") or "").lower()
+    # Never grant bootstrap privileges to an unverified address. Google
+    # sign-in always sets this, but an operator who later enables
+    # email/password must not let anyone claim the bootstrap address.
+    bootstrap = _bootstrap_email(email) and bool(claims.get("email_verified"))
+    stamp = now_iso()
+    return {
+        "email": email,
+        "full_name": claims.get("name") or "",
+        "profile_picture": claims.get("picture") or None,
+        "phone_number": None,
+        "designation": None,
+        "organization": None,
+        "bio": None,
+        "role_codes": ["SUPER_ADMIN"] if bootstrap else ["INNOVATOR"],
+        "account_status": "approved" if bootstrap else "pending",
+        "is_active": True,
+        "email_verified": bool(claims.get("email_verified")),
+        "last_login_at": stamp,
+        "created_at": stamp,
+        "updated_at": stamp,
+    }
+
+
+def current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    """Verify the Firebase ID token and return the caller's profile."""
     if not credentials:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, 'Provide a Firebase ID token as Bearer token.')
+        # Distinguishes "the browser sent no token" from "the token was
+        # rejected" — the two produce the same 401 but very different causes.
+        logger.info("id_token_missing: no Authorization header")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Provide a Firebase ID token as a Bearer token.",
+        )
+
     try:
         claims = verify_id_token(credentials.credentials)
-        uid = claims.get('uid') or claims.get('sub')
-        snap = db().collection('users').document(uid).get()
-        profile = snap.to_dict() if snap.exists else None
-        if not profile:
-            email = (claims.get('email') or '').lower()
-            role = 'SUPER_ADMIN' if settings.bootstrap_admin_email and email == settings.bootstrap_admin_email.lower() else 'INNOVATOR'
-            profile = {
-                'uid': uid, 'email': email, 'full_name': claims.get('name') or '',
-                'role_codes': [role], 'account_status': 'approved' if role == 'SUPER_ADMIN' else 'pending',
-                'email_verified': bool(claims.get('email_verified')), 'created_at': None,
-            }
-            db().collection('users').document(uid).set(profile)
-        if settings.bootstrap_admin_email and profile.get('email', '').lower() == settings.bootstrap_admin_email.lower():
-            profile['role_codes'] = list(set(profile.get('role_codes', []) + ['SUPER_ADMIN']))
-            profile['account_status'] = 'approved'
-        profile['uid'] = uid
-        profile['_token_claims'] = claims
-        return profile
     except FirebaseNotConfigured as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    except TokenUnverifiable as exc:
+        # Not the user's fault and not a reason to sign them out: retry later.
+        logger.warning("id_token_unverifiable: %s", exc)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Could not reach Firebase to verify the session. Try again shortly.",
+        ) from exc
     except Exception as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, 'Firebase ID token is invalid or expired.') from exc
+        # A bare 401 tells an operator nothing about which claim or key failed,
+        # and the browser only sees "session expired" — so name the reason here.
+        logger.warning(
+            "id_token_rejected: %s: %s",
+            type(exc).__name__,
+            str(exc)[:300],
+        )
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Firebase ID token is invalid or expired.",
+        ) from exc
+
+    uid = claims.get("uid") or claims.get("sub")
+    if not uid:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token is missing a user ID.")
+
+    profile = get_doc_or_none("users", uid)
+    if profile is None:
+        profile = _new_profile(uid, claims)
+        db().collection("users").document(uid).set(profile)
+        profile["id"] = uid
+
+    # The bootstrap account is always an approved Super Admin, even if an
+    # older profile predates that setting. Write only when something changed.
+    # Profiles created before `email_verified` was stored fall back to the
+    # current token's claim, so an unverified address cannot claim bootstrap.
+    if _bootstrap_email(profile.get("email", "")) and profile.get(
+        "email_verified", claims.get("email_verified", False)
+    ):
+        roles = set(profile.get("role_codes") or [])
+        if "SUPER_ADMIN" not in roles or profile.get("account_status") != APPROVED:
+            roles.add("SUPER_ADMIN")
+            patch = {
+                "role_codes": sorted(roles),
+                "account_status": APPROVED,
+                "is_active": True,
+                "updated_at": now_iso(),
+            }
+            db().collection("users").document(uid).set(patch, merge=True)
+            profile.update(patch)
+
+    profile["uid"] = uid
+    profile["_claims"] = claims
+    return profile
+
 
 def active_user(user: dict = Depends(current_user)) -> dict:
-    if user.get('account_status') != 'approved':
-        raise HTTPException(status.HTTP_403_FORBIDDEN, 'Your account is awaiting administrator approval.')
+    if user.get("account_status") != APPROVED:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Your account is awaiting administrator approval.",
+        )
+    if user.get("is_active") is False:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This account is disabled.")
     return user
 
-def require_roles(*roles: str):
-    def dependency(user: dict = Depends(active_user)) -> dict:
-        if not set(roles).intersection(user.get('role_codes', [])):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, 'Insufficient role permissions.')
-        return user
-    return dependency
 
 def is_admin(user: dict) -> bool:
-    return bool({'ADMIN', 'SUPER_ADMIN'} & set(user.get('role_codes', [])))
+    return bool({"ADMIN", "SUPER_ADMIN"} & set(user.get("role_codes") or []))
+
+
+def is_super_admin(user: dict) -> bool:
+    return "SUPER_ADMIN" in set(user.get("role_codes") or [])
+
+
+def ensure_super_admin_survives(users: list[dict], demoted_uid: str) -> None:
+    """Refuse a role change that would leave zero Super Admin accounts.
+
+    Callers pass the current user list and the uid losing the role; raises
+    400 when no other Super Admin would remain, so one compromised or
+    mistaken admin cannot lock every administrator out.
+    """
+    others = [
+        doc
+        for doc in users
+        if doc.get("id") != demoted_uid
+        and "SUPER_ADMIN" in set(doc.get("role_codes") or [])
+    ]
+    if not others:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "There must always be at least one Super Admin account.",
+        )
+
+
+def permissions_for(user: dict) -> list[str]:
+    """Effective permission codes, cached on the per-request profile."""
+    cached = user.get("_permissions")
+    if cached is not None:
+        return cached
+    from app.services.rbac import permission_codes
+
+    codes = permission_codes(user)
+    user["_permissions"] = codes
+    return codes
+
+
+def has_permission(user: dict, code: str) -> bool:
+    if is_super_admin(user):
+        return True
+    return code in permissions_for(user)
+
+
+def ensure_permission(user: dict, code: str) -> None:
+    if not has_permission(user, code):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"Your role does not include the {code} permission.",
+        )

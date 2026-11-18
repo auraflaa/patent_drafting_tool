@@ -1,18 +1,23 @@
 import { useEffect, useState } from "react";
-import { apiDownload, apiFetch, ApiError } from "../lib/api";
+import { apiDownload, apiFetch, getFriendlyError, LONG_REQUEST_TIMEOUT_MS } from "../lib/api";
 import type {
   DocumentGenerationJobOut,
   DocumentOut,
   DocumentVersionOut,
 } from "../lib/types";
+import { LoadingState } from "./LoadingState";
+import { ErrorState } from "./ErrorState";
 
 interface Props {
-  patentId: number;
+  patentId: string;
   /** Mirrors the backend gate in can_generate_documents: status must be
    * "Under Review" or "Draft Generated", checked by the caller. */
   statusAllowsGeneration: boolean;
   applicationStatus: string;
   allSectionsCompleted: boolean;
+  /** Generation moves the application to "Draft Generated"; the caller owns
+   * the patent record and has to reload it. */
+  onChanged?: () => void;
 }
 
 export function DocumentGenerationPanel({
@@ -20,20 +25,21 @@ export function DocumentGenerationPanel({
   statusAllowsGeneration,
   applicationStatus,
   allSectionsCompleted,
+  onChanged,
 }: Props) {
   const [documents, setDocuments] = useState<DocumentOut[] | null>(null);
   const [jobs, setJobs] = useState<DocumentGenerationJobOut[] | null>(null);
-  const [versions, setVersions] = useState<Record<number, DocumentVersionOut[]>>({});
-  const [expandedDocId, setExpandedDocId] = useState<number | null>(null);
-  const [generating, setGenerating] = useState<"PDF" | "DOCX" | null>(null);
-  const [retrying, setRetrying] = useState<number | null>(null);
+  const [versions, setVersions] = useState<Record<string, DocumentVersionOut[]>>({});
+  const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [retrying, setRetrying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function loadDocuments() {
     try {
       setDocuments(await apiFetch<DocumentOut[]>(`/api/patents/${patentId}/documents`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load documents");
+      setError(getFriendlyError("DocumentGenerationPanel.catch1", err, "Failed to load documents"));
     }
   }
 
@@ -41,7 +47,7 @@ export function DocumentGenerationPanel({
     try {
       setJobs(await apiFetch<DocumentGenerationJobOut[]>(`/api/patents/${patentId}/documents/jobs`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load generation jobs");
+      setError(getFriendlyError("DocumentGenerationPanel.catch2", err, "Failed to load generation jobs"));
     }
   }
 
@@ -53,26 +59,35 @@ export function DocumentGenerationPanel({
 
   const canGenerate = statusAllowsGeneration && allSectionsCompleted;
 
-  async function generate(format: "PDF" | "DOCX") {
-    setGenerating(format);
+  async function generate() {
+    setGenerating(true);
     setError(null);
     try {
       const job = await apiFetch<DocumentGenerationJobOut>(
         `/api/patents/${patentId}/documents/generate`,
-        { method: "POST", body: JSON.stringify({ output_format: format }) }
+        {
+          method: "POST",
+          body: JSON.stringify({ output_format: "DOCX" }),
+          timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+        }
       );
       if (job.status === "Failed") {
-        setError(`Generation failed: ${job.error_message ?? "unknown error"}`);
+        // The backend curates job error messages for display; show the
+        // actual reason instead of mapping a synthetic 500 to generic text.
+        setError(job.error_message?.trim() || "Generation failed. Check the job history and retry.");
+      } else {
+        onChanged?.();
+        await refreshVersionHistory();
       }
       await Promise.all([loadDocuments(), loadJobs()]);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to generate document");
+      setError(getFriendlyError("DocumentGenerationPanel.generate", err, "Failed to generate document"));
     } finally {
-      setGenerating(null);
+      setGenerating(false);
     }
   }
 
-  async function retry(jobId: number) {
+  async function retry(jobId: string) {
     setRetrying(jobId);
     setError(null);
     try {
@@ -81,53 +96,66 @@ export function DocumentGenerationPanel({
         { method: "POST" }
       );
       if (job.status === "Failed") {
-        setError(`Retry failed again: ${job.error_message ?? "unknown error"}`);
+        setError(job.error_message?.trim() || "Retry failed. Check the job history and try again.");
+      } else {
+        onChanged?.();
+        await refreshVersionHistory();
       }
       await Promise.all([loadDocuments(), loadJobs()]);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to retry generation");
+      setError(getFriendlyError("DocumentGenerationPanel.retry", err, "Failed to retry generation"));
     } finally {
       setRetrying(null);
     }
   }
 
-  async function toggleVersions(documentId: number) {
+  async function loadVersions(documentId: string) {
+    try {
+      const data = await apiFetch<DocumentVersionOut[]>(
+        `/api/patents/${patentId}/documents/${documentId}/versions`
+      );
+      setVersions((v) => ({ ...v, [documentId]: data }));
+    } catch (err) {
+      setError(getFriendlyError("DocumentGenerationPanel.catch3", err, "Failed to load document version history"));
+    }
+  }
+
+  /** Generation writes a new version, so any cached history is stale. */
+  async function refreshVersionHistory() {
+    setVersions({});
+    if (expandedDocId) await loadVersions(expandedDocId);
+  }
+
+  async function toggleVersions(documentId: string) {
     if (expandedDocId === documentId) {
       setExpandedDocId(null);
       return;
     }
     setExpandedDocId(documentId);
     if (!versions[documentId]) {
-      try {
-        const data = await apiFetch<DocumentVersionOut[]>(
-          `/api/patents/${patentId}/documents/${documentId}/versions`
-        );
-        setVersions((v) => ({ ...v, [documentId]: data }));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load document version history");
-      }
+      await loadVersions(documentId);
     }
   }
 
-  async function download(documentId: number, format: string) {
+  async function download(documentId: string) {
     try {
       await apiDownload(
         `/api/patents/${patentId}/documents/${documentId}/download`,
-        `document.${format === "DOCX" ? "docx" : "pdf"}`
+        "document.docx"
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Download failed");
+      setError(getFriendlyError("DocumentGenerationPanel.catch4", err, "Download failed"));
     }
   }
 
-  async function downloadVersion(versionId: number, versionNumber: number) {
+  async function downloadVersion(versionId: string, versionNumber: number) {
     try {
       await apiDownload(
         `/api/patents/${patentId}/documents/versions/${versionId}/download`,
-        `document-v${versionNumber}.pdf`
+        `document-v${versionNumber}.docx`
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Download failed");
+      setError(getFriendlyError("DocumentGenerationPanel.catch5", err, "Download failed"));
     }
   }
 
@@ -135,11 +163,28 @@ export function DocumentGenerationPanel({
     <div className="mt-8">
       <h3 className="mb-3 text-sm font-semibold text-slate-700">Documents</h3>
 
-      {error && (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+      {error && documents !== null && jobs !== null && (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+        >
           {error}
         </div>
       )}
+
+      {(documents === null || jobs === null) &&
+        (error ? (
+          <ErrorState
+            compact
+            message={error}
+            onRetry={() => {
+              loadDocuments();
+              loadJobs();
+            }}
+          />
+        ) : (
+          <LoadingState compact label="Loading documents…" />
+        ))}
 
       {!statusAllowsGeneration && (
         <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
@@ -159,27 +204,18 @@ export function DocumentGenerationPanel({
             {documents && documents.length > 0 ? "Regenerate application document" : "Generate application document"}
           </p>
           <p className="text-xs text-slate-400">
-            Assembles the latest AI-drafted sections into a filed-style document. Each
+            Assembles the latest AI-drafted sections into a filed-style Word document. Each
             generation creates a new, downloadable version — nothing is overwritten.
           </p>
         </div>
         {canGenerate && (
-          <div className="flex gap-2">
-            <button
-              onClick={() => generate("PDF")}
-              disabled={generating !== null}
-              className="whitespace-nowrap rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-            >
-              {generating === "PDF" ? "Generating…" : "Generate PDF"}
-            </button>
-            <button
-              onClick={() => generate("DOCX")}
-              disabled={generating !== null}
-              className="whitespace-nowrap rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              {generating === "DOCX" ? "Generating…" : "Generate DOCX"}
-            </button>
-          </div>
+          <button
+            onClick={generate}
+            disabled={generating}
+            className="whitespace-nowrap rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+          >
+            {generating ? "Generating…" : "Generate DOCX"}
+          </button>
         )}
       </div>
 
@@ -204,7 +240,7 @@ export function DocumentGenerationPanel({
                 </div>
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={() => download(doc.id, doc.output_format)}
+                    onClick={() => download(doc.id)}
                     className="text-xs font-medium text-blue-600 hover:underline"
                   >
                     Download latest
@@ -230,7 +266,9 @@ export function DocumentGenerationPanel({
                         )}
                       </span>
                       <button
-                        onClick={() => downloadVersion(v.id, v.version_number)}
+                        onClick={() =>
+                          downloadVersion(v.id, v.version_number)
+                        }
                         className="text-blue-600 hover:underline"
                       >
                         Download

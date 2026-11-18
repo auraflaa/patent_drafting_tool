@@ -1,5 +1,11 @@
+// Shapes returned by the FastAPI backend.
+//
+// Entity identifiers are Firestore document IDs (opaque strings). The only
+// numeric IDs left are the role/permission catalog entries, which are
+// code-defined constants and never stored as document IDs.
+
 export interface UserOut {
-  id: number;
+  id: string;
   email: string;
   full_name: string;
   phone_number: string | null;
@@ -18,14 +24,8 @@ export interface MeResponse {
   permissions: string[];
 }
 
-export interface TokenResponse {
-  access_token: string;
-  token_type: string;
-  user: UserOut;
-}
-
 export interface PendingUserOut {
-  id: number;
+  id: string;
   email: string;
   full_name: string;
   organization: string | null;
@@ -33,6 +33,7 @@ export interface PendingUserOut {
 }
 
 export interface RoleOut {
+  /** Catalog constant — numeric by design (see ADR-002). */
   id: number;
   role_name: string;
   role_code: string;
@@ -40,6 +41,7 @@ export interface RoleOut {
 }
 
 export interface PermissionOut {
+  /** Catalog constant — numeric by design (see ADR-002). */
   id: number;
   permission_name: string;
   permission_code: string;
@@ -54,7 +56,7 @@ export interface RbacMatrixResponse {
 }
 
 export interface UserAdminOut {
-  id: number;
+  id: string;
   email: string;
   full_name: string;
   account_status: string;
@@ -79,22 +81,22 @@ export const ROLE_HOME: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 export interface TeamOut {
-  id: number;
+  id: string;
   team_name: string;
   team_status: string;
-  created_by: number | null;
+  created_by: string | null;
   created_at: string;
   member_count: number;
   patent_count: number;
 }
 
 export interface TeamMemberOut {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   email: string;
   full_name: string;
   membership_status: string | null;
-  added_by: number | null;
+  added_by: string | null;
 }
 
 export interface TeamDetailOut extends TeamOut {
@@ -106,24 +108,24 @@ export interface TeamDetailOut extends TeamOut {
 // ---------------------------------------------------------------------------
 
 export interface PatentOut {
-  id: number;
-  team_id: number;
+  id: string;
+  team_id: string;
   invention_title: string;
   application_status: string;
-  assigned_patent_agent_id: number | null;
+  assigned_patent_agent_id: string | null;
   ai_status: string | null;
   questionnaire_status: string | null;
   document_status: string | null;
   filing_status: string | null;
   official_application_number: string | null;
   filing_date: string | null;
-  created_by: number | null;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface AvailableAgentOut {
-  id: number;
+  id: string;
   full_name: string;
   email: string;
   active_assignment_count: number;
@@ -137,8 +139,8 @@ export const APPLICANT_TYPES = ["Individual", "Startup", "Company", "University"
 export type ApplicantType = (typeof APPLICANT_TYPES)[number];
 
 export interface ApplicantOut {
-  id: number;
-  patent_application_id: number;
+  id: string;
+  patent_application_id: string;
   applicant_type: string;
   full_name_or_org_name: string;
   address: string | null;
@@ -162,9 +164,9 @@ export interface ApplicantInput {
 }
 
 export interface InventorOut {
-  id: number;
-  patent_application_id: number;
-  user_id: number | null;
+  id: string;
+  patent_application_id: string;
+  user_id: string | null;
   full_name: string;
   address: string | null;
   country: string | null;
@@ -191,7 +193,7 @@ export const INVENTION_TYPES = ["Software", "Mechanical", "Electronics", "Biotec
 export type InventionType = (typeof INVENTION_TYPES)[number];
 
 /** Per-type guidance driving the Technical Details branching (frontend-only —
- * the DB column is a single shared `technical_description` text field). */
+ * the stored questionnaire keeps a single shared `technical_description` field). */
 export const TECHNICAL_DETAILS_GUIDANCE: Record<InventionType, { label: string; placeholder: string }> = {
   Software: {
     label: "Technical Description — Architecture & Implementation",
@@ -221,8 +223,8 @@ export const TECHNICAL_DETAILS_GUIDANCE: Record<InventionType, { label: string; 
 };
 
 export interface QuestionnaireOut {
-  id: number;
-  patent_application_id: number;
+  id: string;
+  patent_application_id: string;
   questionnaire_status: "Not Started" | "In Progress" | "Completed" | null;
   completion_percentage: string | null;
   invention_type: InventionType | null;
@@ -234,6 +236,25 @@ export interface QuestionnaireOut {
   prior_art: string | null;
   keywords: string | null;
   has_existing_drawings: boolean | null;
+  invention_keyword: string | null;
+  title_keyword: string | null;
+  problem_keyword: string | null;
+  claim_keyword: string | null;
+  data1: string | null;
+  data2: string | null;
+  field: string | null;
+  domain: string | null;
+  area: string | null;
+  one_line_about_field: string | null;
+  two_lines_about_domain: string | null;
+  three_lines_about_area: string | null;
+  four_lines_about_problem: string | null;
+  four_lines_about_solution: string | null;
+  advantage1: string | null;
+  advantage2: string | null;
+  exemplary_scenario: string | null;
+  detailed_exemplary_scenario: string | null;
+  best_working_method: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -248,12 +269,31 @@ export interface QuestionnaireUpdateInput {
   prior_art?: string | null;
   keywords?: string | null;
   has_existing_drawings?: boolean | null;
+  invention_keyword?: string | null;
+  title_keyword?: string | null;
+  problem_keyword?: string | null;
+  claim_keyword?: string | null;
+  data1?: string | null;
+  data2?: string | null;
+  field?: string | null;
+  domain?: string | null;
+  area?: string | null;
+  one_line_about_field?: string | null;
+  two_lines_about_domain?: string | null;
+  three_lines_about_area?: string | null;
+  four_lines_about_problem?: string | null;
+  four_lines_about_solution?: string | null;
+  advantage1?: string | null;
+  advantage2?: string | null;
+  exemplary_scenario?: string | null;
+  detailed_exemplary_scenario?: string | null;
+  best_working_method?: string | null;
 }
 
 export interface QuestionnaireVersionOut {
-  id: number;
-  questionnaire_id: number;
-  patent_application_id: number;
+  id: string;
+  questionnaire_id: string;
+  patent_application_id: string;
   version_number: number;
   version_status: string | null;
   invention_type: string | null;
@@ -264,12 +304,31 @@ export interface QuestionnaireVersionOut {
   advantages: string | null;
   prior_art: string | null;
   keywords: string | null;
+  invention_keyword: string | null;
+  title_keyword: string | null;
+  problem_keyword: string | null;
+  claim_keyword: string | null;
+  data1: string | null;
+  data2: string | null;
+  field: string | null;
+  domain: string | null;
+  area: string | null;
+  one_line_about_field: string | null;
+  two_lines_about_domain: string | null;
+  three_lines_about_area: string | null;
+  four_lines_about_problem: string | null;
+  four_lines_about_solution: string | null;
+  advantage1: string | null;
+  advantage2: string | null;
+  exemplary_scenario: string | null;
+  detailed_exemplary_scenario: string | null;
+  best_working_method: string | null;
   change_reason: string | null;
-  created_by: number | null;
+  created_by: string | null;
 }
 
 // ---------------------------------------------------------------------------
-// AI Drafting (Phase 6)
+// AI Drafting
 // ---------------------------------------------------------------------------
 
 export const SECTION_TYPES = [
@@ -290,9 +349,9 @@ export const SECTION_LABELS: Record<SectionType, string> = {
 };
 
 export interface AIOutputOut {
-  id: number;
-  patent_application_id: number;
-  questionnaire_version_id: number;
+  id: string;
+  patent_application_id: string;
+  questionnaire_version_id: string;
   section_type: string;
   version_number: number;
   ai_provider: string | null;
@@ -310,37 +369,135 @@ export interface DraftSectionSlot {
 }
 
 // ---------------------------------------------------------------------------
-// Document generation (Phase 7)
+// Document generation
 // ---------------------------------------------------------------------------
 
 export interface DocumentOut {
-  id: number;
-  patent_application_id: number;
-  template_id: number | null;
+  id: string;
+  patent_application_id: string;
+  template_id: string | null;
   document_type: string | null;
   output_format: string;
   watermark_status: string | null;
-  generated_by: number | null;
+  generated_by: string | null;
   generated_at: string | null;
 }
 
 export interface DocumentVersionOut {
-  id: number;
-  document_id: number;
+  id: string;
+  document_id: string;
   version_number: number;
   change_summary: string | null;
-  generated_by: number | null;
+  generated_by: string | null;
   generated_at: string | null;
+  figures_embedded: string[];
+  figures_omitted: { alias: string | null; reason: string }[];
 }
+
+// ---------------------------------------------------------------------------
+// Statutory forms
+// ---------------------------------------------------------------------------
+
+export interface FormCardOut {
+  form_code: string;
+  label: string;
+  generated: boolean;
+  latest_version: number | null;
+  generated_at: string | null;
+  job_status: string | null;
+  job_error: string | null;
+  job_completed_at: string | null;
+  missing_fields: string[];
+}
+
+export interface FormsStatusOut {
+  forms: FormCardOut[];
+  usable_figure_count: number;
+  missing_sketch_warning: boolean;
+  finalized_at: string | null;
+  finalized_by: string | null;
+}
+
+export interface FormGenerateResultOut {
+  form_code: string;
+  status: string;
+  job_id: string;
+  figures_embedded: string[];
+  figures_omitted: { alias: string | null; reason: string }[];
+  warnings: string[];
+  error: string | null;
+}
+
+export interface FormsGenerateOut {
+  batch_id: string;
+  results: FormGenerateResultOut[];
+}
+
+export interface FormFinalizeOut {
+  patent_application_id: string;
+  finalized_at: string;
+  finalized_by: string;
+  usable_figure_count: number;
+}
+
+// ---------------------------------------------------------------------------
+// AI field refinement
+// ---------------------------------------------------------------------------
+
+export interface RefinedGroupOut {
+  id: string;
+  group: "FORM_METADATA" | "FORM_BACKGROUND" | "FORM_EMBODIMENTS";
+  version_number: number;
+  fields: Record<string, string | null>;
+  origin: Record<string, "ai" | "user" | "fallback">;
+  figure_refs: Record<string, { id: string; label: string; page: number; source: string }>;
+  used_figures: string[];
+  warnings: string[];
+  ai_provider: string | null;
+  ai_model: string | null;
+  edited_by: string | null;
+  created_at: string;
+}
+
+export const REFINE_GROUPS = [
+  { code: "FORM_METADATA", label: "Identity & field" },
+  { code: "FORM_BACKGROUND", label: "Background & objects" },
+  { code: "FORM_EMBODIMENTS", label: "Embodiments" },
+] as const;
+
+export const REFINE_FIELD_LABELS: Record<string, string> = {
+  invention_keyword: "Invention keyword",
+  title_keyword: "Title keyword",
+  problem_keyword: "Problem keyword",
+  claim_keyword: "Claim subject",
+  data1: "Claim component 1",
+  data2: "Claim component 2",
+  field: "Field of invention",
+  domain: "Domain",
+  area: "Area",
+  one_line_about_field: "One line about the field",
+  two_lines_about_domain: "Two lines about the domain",
+  three_lines_about_area: "Three lines about the area",
+  four_lines_about_problem: "Four lines about the problem",
+  four_lines_about_solution: "Four lines about the solution",
+  advantage1: "First object",
+  advantage2: "Second object",
+  exemplary_scenario: "Exemplary scenario",
+  detailed_exemplary_scenario: "Detailed exemplary scenario",
+  best_working_method: "Best working method",
+};
 
 export type DocumentGenerationJobStatus = "Queued" | "Processing" | "Completed" | "Failed";
 
 export interface DocumentGenerationJobOut {
-  id: number;
-  patent_application_id: number;
+  id: string;
+  patent_application_id: string;
+  form_code: string | null;
+  batch_id: string | null;
   status: DocumentGenerationJobStatus;
-  triggered_by: number;
-  retried_from_job_id: number | null;
+  output_format: string | null;
+  triggered_by: string;
+  retried_from_job_id: string | null;
   error_message: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -369,26 +526,60 @@ export const STATUS_COLOR: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Collaboration: Comments, Files, Notifications, Calendar (Phase 8)
+// Collaboration: Comments, Files, Notifications, Calendar
 // ---------------------------------------------------------------------------
 
 export interface CommentOut {
-  id: number;
-  patent_application_id: number;
-  user_id: number;
+  id: string;
+  patent_application_id: string;
+  user_id: string;
   user_full_name: string | null;
   comment_text: string;
   created_at: string;
 }
 
+export interface FigureOut {
+  id: string;
+  file_id: string;
+  page: number;
+  bbox: number[];
+  kind: string;
+  caption: string;
+  label: string;
+  confidence: number | null;
+  has_image: boolean;
+  usable: "usable" | "rejected" | "unknown";
+  reason: string;
+  vision_caption: string;
+  vision_description: string;
+  include_in_drawings: boolean;
+  display_order: number;
+}
+
 export interface FileOut {
-  id: number;
-  patent_application_id: number;
-  uploaded_by: number | null;
+  id: string;
+  patent_application_id: string;
+  uploaded_by: string | null;
   uploaded_by_name: string | null;
   original_file_name: string | null;
+  /** Set when a PDF was converted to Word on upload. */
+  source_file_name: string | null;
+  converted_from_pdf: boolean;
   mime_type: string | null;
   file_size_bytes: number | null;
+  /** Best-effort text/figure extraction, run once after the upload is stored.
+   * `not_analyzed` marks a file uploaded before extraction existed. */
+  extraction_status:
+    | "not_analyzed"
+    | "pending"
+    | "ready"
+    | "failed"
+    | "unsupported"
+    | "unavailable";
+  extraction_figure_count: number;
+  extraction_page_count: number;
+  extraction_text_available: boolean;
+  extraction_error: string | null;
   created_at: string;
 }
 
@@ -402,14 +593,13 @@ export type NotificationType =
   | "DraftGenerated"
   | "FilingRecorded"
   | "Granted"
-  // NEW — comment/file collaboration activity (closes open item #28)
   | "CommentAdded"
   | "FileUploaded"
   | string;
 
 export interface NotificationOut {
-  id: number;
-  patent_application_id: number | null;
+  id: string;
+  patent_application_id: string | null;
   invention_title: string | null;
   notification_type: NotificationType | null;
   is_read: boolean;
@@ -436,12 +626,12 @@ export const CALENDAR_EVENT_TYPES = ["Filing Deadline", "Examination", "Hearing"
 export type CalendarEventType = (typeof CALENDAR_EVENT_TYPES)[number];
 
 export interface CalendarEventOut {
-  id: number;
-  patent_application_id: number;
+  id: string;
+  patent_application_id: string;
   invention_title: string | null;
   event_type: string | null;
   event_date: string | null;
-  created_by: number | null;
+  created_by: string | null;
 }
 
 export interface CalendarEventCreate {
@@ -450,27 +640,27 @@ export interface CalendarEventCreate {
 }
 
 // ---------------------------------------------------------------------------
-// Templates (NEW — closes open item #24: Templates admin UI + real merging)
+// Templates
 // ---------------------------------------------------------------------------
 
 export interface TemplateOut {
-  id: number;
+  id: string;
   document_type: string;
   version_number: number;
   file_path: string | null;
   original_file_name: string | null;
   is_active: boolean;
-  edited_by: number | null;
+  edited_by: string | null;
   edited_by_name: string | null;
-  // Only populated on the upload response itself (open item #31) — null
-  // on every other read (list, activate).
+  // Only populated on the upload response itself — null on every other read
+  // (list, activate).
   unknown_placeholders: string[] | null;
   unused_known_placeholders: string[] | null;
   template_parse_error: string | null;
 }
 
 // ---------------------------------------------------------------------------
-// Reports & Dashboards (NEW — Phase 9)
+// Reports & Dashboards
 // ---------------------------------------------------------------------------
 
 export interface StatusCount {
@@ -479,11 +669,11 @@ export interface StatusCount {
 }
 
 export interface RecentActivityItem {
-  id: number;
-  user_id: number | null;
+  id: string;
+  user_id: string | null;
   event_type: string | null;
   entity_type: string | null;
-  entity_id: number | null;
+  entity_id: string | null;
   created_at: string;
 }
 
@@ -514,6 +704,7 @@ export interface ReportOut {
 }
 
 export interface ReportPermissionGrant {
+  /** Catalog constant — numeric by design. */
   role_id: number;
   report_type: string;
 }

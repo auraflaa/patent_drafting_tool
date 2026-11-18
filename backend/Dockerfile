@@ -12,14 +12,16 @@ RUN pip install --no-cache-dir --upgrade pip \
 # --- runtime: slim image, no build toolchain, non-root user ----------------
 FROM python:3.13-slim
 
-# LibreOffice is a hard requirement for real PDF conversion (see
-# app/services/document_service.py) — installed only in this stage, not the
-# builder, so the pip-install layer above stays cache-friendly and
-# independent of this apt layer. This is the single biggest contributor to
-# final image size; there's no way around it while DOCX->PDF conversion
-# shells out to headless LibreOffice rather than a pure-Python renderer.
+# No LibreOffice: documents are Word-only (ADR-006) and PDF uploads are
+# converted with the pure-Python `pdf2docx` dependency, so the runtime needs
+# no office suite or headless renderer.
+#
+# A headless JRE is required: PDF text/figure extraction (opendataloader-pdf)
+# runs a bundled JVM tool, which needs Java 11 or newer on PATH.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libreoffice ca-certificates \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --uid 1000 appuser
@@ -29,31 +31,35 @@ COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 COPY --chown=appuser:appuser . .
-RUN chmod +x docker-entrypoint.sh
 
 USER appuser
 
 EXPOSE 8000
 
+# /health returns 503 until Firebase credentials resolve (ADR-005), so the
+# /health answers 503 while Firebase is unconfigured (by design: the probe is
+# unretried and the app stays usable for setup). The container is "up" in
+# that state too, so the check accepts either code — only a connection
+# failure or a 500 fails it.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status in (200, 503) else 1)"
 
-# Applies pending Alembic migrations, then execs whatever CMD is given below
-# — see docker-entrypoint.sh's docstring for the single-instance assumption
-# behind running migrations on every boot.
-ENTRYPOINT ["./docker-entrypoint.sh"]
-
+# No entrypoint script: there are no migrations to apply (Firestore needs
+# none) and no boot-time secret materialisation. Configuration comes from the
+# environment, exactly as pydantic-settings reads it.
+#
 # gunicorn as the process manager (auto-restarts a crashed worker, handles
-# graceful reload) running real async Uvicorn workers underneath — the
-# standard production combo for an ASGI app; plain `uvicorn --workers N`
-# has no supervisor of its own. 4 workers is a reasonable default for a
-# single Koyeb-sized container; override via docker run/compose command,
-# or set $WEB_CONCURRENCY if you swap this for gunicorn's own env-driven
-# config later.
+# graceful reload) running async Uvicorn workers underneath. All application
+# state lives in Firestore, so worker count is only a capacity decision; keep
+# it modest because a PDF conversion runs in-process and holds one worker for
+# the length of the conversion. Override with `docker run ... <command>` if
+# needed.
+# 120s covered a PDF conversion but not a conversion plus extraction on a long
+# filing; the client waits up to 180s for an upload, so allow more.
 CMD ["gunicorn", "app.main:app", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
-     "--workers", "4", \
+     "--workers", "2", \
      "--bind", "0.0.0.0:8000", \
      "--access-logfile", "-", \
      "--error-logfile", "-", \
-     "--timeout", "120"]
+     "--timeout", "240"]
