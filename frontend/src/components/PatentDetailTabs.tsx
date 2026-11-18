@@ -1029,7 +1029,7 @@ export function QuestionnaireTab({
           value={draft.title_keyword}
           editable={editable}
           onChange={(v) => setDraft({ ...draft, title_keyword: v })}
-          placeholder="After “A SYSTEM AND METHOD FOR ENABLING”; uppercase."
+          placeholder="The full invention title; uppercase."
           rows={1}
         />
         <QField

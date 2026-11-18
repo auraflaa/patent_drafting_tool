@@ -18,7 +18,7 @@ statutory forms (`backend/app/templates/forms/`). The sample workbook
 
 | Template variable | Source | Notes |
 |---|---|---|
-| `TitleKeyword` | `questionnaire.title_keyword` | After "A SYSTEM AND METHOD FOR ENABLING"; uppercase noun phrase |
+| `TitleKeyword` | `questionnaire.title_keyword` | The full invention title; uppercase |
 | `ApplicantName` | `applicant.full_name_or_org_name` | Primary applicant |
 | `ApplicantNationality` | `applicant.country` | |
 | `ApplicantAddress` | `applicant.address` | |

@@ -90,8 +90,8 @@ alias or describe pixels you cannot see.
 GROUP FORMATS (the request names one group; follow only its section)
 ### FORM_METADATA - identity and field, each a standalone label
 - invention_keyword, problem_keyword, claim_keyword, data1, data2: noun phrases.
-- title_keyword: UPPERCASE noun phrase, at most 15 words: the specific
-  features of the invention, no fancy expressions.
+- title_keyword: the FULL invention title in UPPERCASE, at most 15 words,
+  no trailing period. It renders as the complete title with no prefix added.
 - field/domain/area: short noun phrases placing the invention.
 ### FORM_BACKGROUND - the technical story, objective and verifiable
 - one_line_about_field: one sentence, "This invention relates to ..." plus the

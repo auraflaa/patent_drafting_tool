@@ -95,7 +95,7 @@ _NEW = (
         200,
         required_for_forms=True,
         ai_group="FORM_METADATA",
-        help_text="After 'A SYSTEM AND METHOD FOR ENABLING'; uppercase.",
+        help_text="The full invention title; uppercase.",
     ),
     FieldSpec(
         "problem_keyword",
