@@ -670,6 +670,28 @@ def test_ai_stops_after_the_retry_budget(monkeypatch: pytest.MonkeyPatch) -> Non
     assert calls["n"] == drafting.MAX_AI_ATTEMPTS
 
 
+def test_ai_rate_limit_is_a_distinct_retryable_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 429 stays an AIGenerationError but carries the rate-limit type so
+    the route can answer 429 (wait and retry) instead of a generic 502."""
+    from app.core.config import settings
+    from app.services import drafting
+
+    monkeypatch.setattr(settings, "ai_api_url", "https://example.ai/v1/chat/completions")
+    monkeypatch.setattr(settings, "ai_api_key", "secret")
+    monkeypatch.setattr(settings, "ai_model", "test-model")
+    monkeypatch.setattr(drafting.time, "sleep", lambda seconds: None)
+
+    def fake_post(url: str, **kwargs):
+        request = httpx.Request("POST", url)
+        return httpx.Response(429, request=request)
+
+    monkeypatch.setattr(drafting.httpx, "post", fake_post)
+    with pytest.raises(drafting.AIRateLimitError, match="HTTP 429"):
+        drafting._ai_text({"invention_title": "Test"}, {}, "ABSTRACT")
+
+
 def test_ai_rejects_partial_configuration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

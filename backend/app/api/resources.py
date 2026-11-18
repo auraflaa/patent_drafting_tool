@@ -1335,6 +1335,13 @@ def generate_draft(
             text, provider, model = drafting.generate_section(
                 patent, questionnaire, section, context=context
             )
+        except drafting.AIRateLimitError as exc:
+            _set_patent(patent_id, {"ai_status": "Failed"})
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                f"Section {section.replace('_', ' ').title()}: the AI provider "
+                "is rate-limited. Wait a moment, then regenerate this section.",
+            ) from exc
         except drafting.AIGenerationError as exc:
             _set_patent(patent_id, {"ai_status": "Failed"})
             raise HTTPException(

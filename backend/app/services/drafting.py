@@ -53,6 +53,15 @@ class AIGenerationError(RuntimeError):
     pass
 
 
+class AIRateLimitError(AIGenerationError):
+    """The provider's per-minute budget is exhausted.
+
+    Kept distinct so the route can answer 429 (wait and retry this
+    section) instead of a generic 502: the message stays identical to the
+    plain failure so existing handling is unaffected.
+    """
+
+
 # Parenthesised multi-digit tokens are reference-numeral shaped: (102),
 # [see FIG. 3]. The model must only reuse numerals from the input material.
 _NUMERAL_RE = re.compile(r"\((\d{2,})\)")
@@ -239,9 +248,10 @@ def _ai_text(
         logger.warning(
             "AI request failed with HTTP %s", exc.response.status_code
         )
-        raise AIGenerationError(
-            f"AI request failed with HTTP {exc.response.status_code}."
-        ) from exc
+        message = f"AI request failed with HTTP {exc.response.status_code}."
+        if exc.response.status_code == 429:
+            raise AIRateLimitError(message) from exc
+        raise AIGenerationError(message) from exc
     except AIGenerationError:
         raise
     except Exception as exc:

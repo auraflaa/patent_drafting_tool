@@ -260,3 +260,44 @@ def test_generate_forms_refuses_post_filing_status(monkeypatch) -> None:
             "p1", {}, {"uid": "u1", "role_codes": ["INNOVATOR"]}
         )
     assert exc.value.status_code == 400
+
+
+def test_rate_limited_ai_draft_answers_429(monkeypatch) -> None:
+    """A provider 429 surfaces as 429 (wait and retry the section), not a
+    generic 502: the in-flight sections stay stored and the section-level
+    retry button is the recovery path."""
+    from app.api import resources
+    from app.services import drafting
+
+    patent = {
+        "id": "p1",
+        "application_status": "Submitted",
+        "created_by": "u1",
+        "assigned_patent_agent_id": None,
+    }
+    _stub_common(
+        monkeypatch, patent, {"id": "q1", "questionnaire_status": "Completed"}
+    )
+    monkeypatch.setattr(resources, "query_docs", lambda *a, **k: [])
+    monkeypatch.setattr(resources, "_draft_outputs", lambda *a, **k: [])
+    monkeypatch.setattr(
+        resources.extraction_store, "load_context", lambda *a, **k: ""
+    )
+    monkeypatch.setattr(
+        drafting,
+        "generate_section",
+        lambda *a, **k: (_ for _ in ()).throw(
+            drafting.AIRateLimitError("AI request failed with HTTP 429.")
+        ),
+    )
+    monkeypatch.setattr(resources, "allocate_counter", lambda *a, **k: 1)
+    monkeypatch.setattr(resources, "_set_patent", lambda *a, **k: None)
+
+    with pytest.raises(HTTPException) as exc:
+        resources.generate_draft(
+            "p1",
+            {"section_types": ["ABSTRACT"]},
+            {"uid": "u1", "role_codes": ["INNOVATOR"]},
+        )
+    assert exc.value.status_code == 429
+    assert "rate-limited" in str(exc.value.detail)
