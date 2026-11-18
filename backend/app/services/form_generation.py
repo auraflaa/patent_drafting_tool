@@ -118,16 +118,43 @@ def _refined_fields(patent_id: str) -> dict:
 
 
 def build_profile(patent_id: str, counts: dict | None = None) -> dict:
-    """Assemble the render profile from Firestore rows and settings."""
+    """Assemble the render profile from Firestore rows and settings.
+
+    Drafts render from the patent's own data alone: when no applicant was
+    entered, the first inventor stands in as the applicant (name, country,
+    address) and the substitution is reported in ``party_fallbacks`` so
+    the assignee can still be corrected in Basic Information. With no
+    inventors either, generation stays fail-closed — a person is never
+    invented.
+    """
     questionnaire = _questionnaire(patent_id)
+    applicant = _primary_applicant(patent_id)
+    inventors = _inventors(patent_id)
+    party_fallbacks: list[str] = []
+    if not str(applicant.get("full_name_or_org_name") or "").strip() and inventors:
+        first = inventors[0]
+        applicant = {
+            **applicant,
+            "full_name_or_org_name": first.get("full_name") or "",
+            "country": first.get("country") or "",
+            "address": first.get("address") or "",
+        }
+        fallback_name = str(applicant.get("full_name_or_org_name") or "").strip()
+        if fallback_name:
+            party_fallbacks.append(
+                "applicant defaulted from the first inventor "
+                f"({fallback_name}); set the applicant in Basic Information "
+                "if the assignee differs."
+            )
     return {
         "questionnaire": questionnaire,
         "refined": _refined_fields(patent_id),
-        "applicant": _primary_applicant(patent_id),
-        "inventors": _inventors(patent_id),
+        "applicant": applicant,
+        "inventors": inventors,
         "agent": _agent(),
         "counts": dict(counts or {}),
         "generated_date": forms.format_generated_date(),
+        "party_fallbacks": party_fallbacks,
     }
 
 
@@ -166,8 +193,11 @@ def generate_form_set(
     # page counts stay manual until the review UI supplies them.
     context["drawing_count"] = str(len(figures))
     results = []
+    fallbacks = list(profile.get("party_fallbacks") or [])
     for code in wanted:
-        results.append(_render_one(patent_id, user, batch_id, code, context, figures))
+        results.append(
+            _render_one(patent_id, user, batch_id, code, context, figures, fallbacks)
+        )
     try:
         _record_set(patent_id, batch_id)
     except Exception:  # noqa: BLE001 - the set row is bookkeeping, not output
@@ -182,6 +212,7 @@ def _render_one(
     code: str,
     context: dict,
     figures: list[dict],
+    fallback_warnings: list[str] | None = None,
 ) -> dict:
     job = create_doc(
         "document_jobs",
@@ -211,13 +242,16 @@ def _render_one(
                 "completed_at": now_iso(),
             },
         )
+        warnings = list(report["warnings"])
+        # Party defaulting is a visible draft assumption, not silent data.
+        warnings.extend(fallback_warnings or [])
         return {
             "form_code": code,
             "status": "Completed",
             "job_id": job["id"],
             "figures_embedded": report["figures_embedded"],
             "figures_omitted": report["figures_omitted"],
-            "warnings": report["warnings"],
+            "warnings": warnings,
             "error": None,
         }
     except Exception as exc:  # noqa: BLE001 - one form never fails the set

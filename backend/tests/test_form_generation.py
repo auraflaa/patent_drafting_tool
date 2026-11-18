@@ -366,3 +366,123 @@ def test_generate_reports_blob_overflow_clearly(fakes, monkeypatch):
     by_code = {row["form_code"]: row for row in result["results"]}
     assert by_code["FORM1"]["status"] == "Failed"
     assert "Deselect some drawings" in by_code["FORM1"]["error"]
+
+
+def _no_applicant_store(monkeypatch):
+    """Store like `fakes` but with no applicant rows at all."""
+    store = {"documents": {}, "versions": [], "jobs": []}
+
+    def fake_query(collection, filters=None):
+        if collection == "questionnaires":
+            return [{"id": "q1", **_profile()["questionnaire"]}]
+        if collection == "applicants":
+            return []
+        if collection == "inventors":
+            return [
+                {"id": "i0", "inventor_order": 0, **_profile()["inventors"][0]}
+            ]
+        if collection == "documents":
+            return list(store["documents"].values())
+        if collection == "document_versions":
+            return store["versions"]
+        if collection == "document_jobs":
+            return store["jobs"]
+        if collection == "file_figures":
+            return []
+        return []
+
+    def fake_create(collection, data, doc_id=None):
+        record = {"id": doc_id or f"{collection}-{len(store['jobs'])}", **data}
+        if collection == "documents":
+            store[record["id"]] = record
+        elif collection == "document_versions":
+            store["versions"].append(record)
+        elif collection == "document_jobs":
+            store["jobs"].append(record)
+        return record
+
+    def fake_patch(collection, doc_id, data):
+        for row in store["jobs"]:
+            if row["id"] == doc_id:
+                row.update(data)
+                return row
+        return {"id": doc_id, **data}
+
+    monkeypatch.setattr(form_generation, "query_docs", fake_query)
+    monkeypatch.setattr(form_generation, "create_doc", fake_create)
+    monkeypatch.setattr(form_generation, "patch_doc", fake_patch)
+    monkeypatch.setattr(
+        form_generation, "get_doc_or_none", lambda collection, doc_id: None
+    )
+    monkeypatch.setattr(form_generation, "allocate_counter", lambda *a, **k: 1)
+    monkeypatch.setattr(
+        form_generation,
+        "set_latest_version",
+        lambda collection, doc_id, version, fields: {"id": doc_id, **fields},
+    )
+    monkeypatch.setattr(
+        form_generation.blobs,
+        "put_blob",
+        lambda data, mime=None: {
+            "id": "blob1",
+            "size_bytes": len(data),
+            "stored_bytes": len(data),
+        },
+    )
+    monkeypatch.setattr(form_generation.blobs, "delete_blob", lambda blob_id: None)
+    monkeypatch.setattr(
+        form_generation.extraction_store, "usable_figure_count", lambda patent_id: 0
+    )
+    monkeypatch.setattr(
+        form_generation.extraction_store, "figures_for_patent", lambda patent_id: []
+    )
+    return store
+
+
+def test_applicant_defaults_to_first_inventor(monkeypatch):
+    _no_applicant_store(monkeypatch)
+
+    profile = form_generation.build_profile("p1")
+
+    assert profile["applicant"]["full_name_or_org_name"] == "Alice"
+    assert profile["applicant"]["country"] == "India"
+    assert profile["party_fallbacks"] == [
+        "applicant defaulted from the first inventor (Alice); "
+        "set the applicant in Basic Information if the assignee differs."
+    ]
+    context = form_generation.profile_context(profile)
+    assert context["applicant_name"] == "Alice"
+    assert form_generation.missing_form_fields("FORM1", context) == []
+    assert form_generation.missing_form_fields("FORM3", context) == []
+
+
+def test_generate_succeeds_without_applicant_and_warns(monkeypatch):
+    _no_applicant_store(monkeypatch)
+
+    result = form_generation.generate_form_set("p1", {"uid": "u1"})
+
+    assert len(result["results"]) == 5
+    assert all(row["status"] == "Completed" for row in result["results"])
+    for row in result["results"]:
+        assert any("applicant defaulted" in warning for warning in row["warnings"])
+
+
+def test_no_parties_at_all_stays_fail_closed(monkeypatch):
+    store = _no_applicant_store(monkeypatch)
+    assert store is not None
+    monkeypatch.setattr(
+        form_generation,
+        "query_docs",
+        lambda collection, filters=None: (
+            [{"id": "q1", **_profile()["questionnaire"]}]
+            if collection == "questionnaires"
+            else []
+        ),
+    )
+
+    profile = form_generation.build_profile("p1")
+    context = form_generation.profile_context(profile)
+
+    assert profile["party_fallbacks"] == []
+    assert "applicant_name" in form_generation.missing_form_fields("FORM1", context)
+    assert "inventor1_name" in form_generation.missing_form_fields("FORM1", context)
