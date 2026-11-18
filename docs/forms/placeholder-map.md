@@ -41,7 +41,7 @@ attachment counts (13 pages, 4 claims, 4 drawings).
 
 | Template variable | Source |
 |---|---|
-| `TitleKeyword` | `questionnaire.title_keyword` |
+| `TitleKeyword` | `questionnaire.title_keyword` | The full invention title; uppercase, rendered with no prefix |
 | `ApplicantName`, `ApplicantAddress` | primary applicant |
 | `Field`, `Domain`, `Area` | `questionnaire.field`, `.domain`, `.area` |
 | `InventionKeyword` | `questionnaire.invention_keyword` |
@@ -66,9 +66,12 @@ DataRobot, Medtronic, Siemens) and the duplicated
 
 ## Form 3 — Statement and Undertaking (`FORM3.docx`)
 
-Static statutory text with an applicant block. Currently contains no
-placeholders; the applicant name/address are parameterised from the primary
-applicant so the form is not institution-specific.
+Applicant block plus section-8 statements, parameterised from the primary
+applicant (name/address) with the generated date. The dated/signature/agent
+footer was removed: the form renders unsigned.
+
+**Removed:** hardcoded "No One" assignee (now the applicant tag), fixed
+"19th day of February 2023" date, and the agent signature footer.
 
 ## Form 5 — Declaration as to Inventorship (`FORM5.docx`)
 
@@ -90,6 +93,22 @@ applicant so the form is not institution-specific.
 **Removed:** the static sample diagram image. The block is filled with real
 selected figures only; with none selected the sheet is marked incomplete.
 
+## Draft conventions (all five forms)
+
+- **Unsigned drafts:** FORM2/FORM3/FORM5 ship no signature blocks; FORM1
+  keeps its statutory tables but its inventor/agent signature rows render a
+  single "(Unsigned draft — signatures not required)" note. Agent tags that
+  remain in the tables render blank until an agent is appointed.
+- **Full title:** FORM1 and FORM2 render `TitleKeyword` bare — no "A SYSTEM
+  AND METHOD FOR ENABLING" prefix. `questionnaire.title_keyword` is the
+  complete uppercase title (validated: at most 12 words, no trailing
+  period).
+- **Applicant fallback:** with no applicant row, the first inventor stands
+  in as the applicant (name/country/address) and every generated form
+  carries an "applicant defaulted" warning naming the substitution. With no
+  parties at all, generation fails closed on the missing names instead of
+  inventing a person.
+
 ## AI refinement groups
 
 The AI rephrases raw questionnaire answers into the long-form fields above.
@@ -97,7 +116,7 @@ It never writes claims, abstract, statutory boilerplate, applicant/inventor
 names, dates, or agent details. Short keyword fields are validated as noun
 phrases; advantage fields as lowercase base-form verbs (the template renders
 "is to <value>"). The system prompt encodes Indian complete-specification
-conventions (MPPP/Rule 13): uppercase ≤15-word titles, "This invention
+conventions (MPPP/Rule 13): full uppercase ≤15-word title, "This invention
 relates to …" field statements, objective background without admissions
 beyond the material, enablement-standard embodiments with best mode, exact
 reference numerals, and one term per element throughout.

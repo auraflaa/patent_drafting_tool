@@ -116,3 +116,18 @@ The product needs:
   stays audit metadata — the drawings sheet embeds every user-selected
   figure, because the include toggles in the review UI (not model
   placement hints) are the source of truth for what ships.
+
+## Amendment: owner self-service drafts (accepted)
+
+- `forms/generate` admits the owner, the assigned agent, or an admin in any
+  pre-filing status, mirroring AI drafts; innovators hold
+  `DOCUMENTS_GENERATE` for their own applications. Finalizing stays
+  agent/admin-only with the usable-figure gate, so self-service can never
+  file.
+- Drafts render unsigned (signature blocks removed, FORM1 keeps a single
+  unsigned-draft note) from the patent's own data alone. With no applicant
+  row, the first inventor stands in and every form warns about the
+  substitution; with no parties at all, required-field checks still fail
+  closed. Sample institution/agent names and dates never ship.
+- `title_keyword` is the complete title, rendered bare in FORM1/FORM2 with
+  no "A SYSTEM AND METHOD FOR ENABLING" prefix.

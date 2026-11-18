@@ -123,8 +123,9 @@ Open http://localhost:5173.
 As **Innovator**:
 
 1. `/innovator` → create a team → create a patent in it.
-2. Open the patent → **Basic Info** tab → add an applicant + inventor.
-3. **Questionnaire** tab → fill required fields → save → **Submit** the patent.
+2. Open the patent → **Basic Info** tab → add an applicant + inventor (entering both avoids the first-inventor applicant fallback warning on generated forms).
+3. **Questionnaire** tab → fill required fields (the title field is the full invention title, uppercase) → save → **Submit** the patent.
+4. **Forms** tab → **Generate all forms** → confirm FORM1/2/3/5 + Drawings render as unsigned drafts → download FORM2 and confirm the full title with no prefix.
 
 As **Admin/Super Admin**:
 
@@ -136,7 +137,7 @@ As **Patent Agent**:
 6. `/agent/patents/:id/draft` → **Generate** a `Summary` section → confirm a version appears. Legacy drafts stay downloadable; the current flow is form refinement next.
 7. **Refine** (`Refine` panel → refine all groups) → confirm AI or stub values appear with per-group versions. Without `AI_*` keys the stub keeps raw answers.
 8. **Figures** (`Files` → upload a drawing-rich PDF or image, open the figure strip) → caption/approve figures.
-9. **Forms** (`Statutory forms` → Generate) → confirm FORM1/2/3/5 + Drawings render → **Finalize** → download FORM2.
+9. **Statutory forms** (same workspace panel, also available pre-filing) → **Generate** → confirm FORM1/2/3/5 + Drawings render → add at least one usable drawing, then **Finalize** → download FORM2.
 10. Generate a legacy DOCX document → confirm download works. PDF output is not offered: open the DOCX and export a PDF from your word processor if you need one.
 11. Upload a supporting file (a PDF arrives as DOCX), download it, then delete it.
 

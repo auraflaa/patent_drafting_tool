@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AI field refinement: three grouped JSON calls with validation + repair + raw fallback, versioned editable review, optional vision input for embodiments, and a vision classification pass over figures.
 - YOLO figure detection (Apache-2.0 DocLayNet weights, pluggable via `YOLO_MODEL_PATH`), deterministic screening, direct image uploads as figures, figure review UI with captions and use-anyway.
 - Figure endpoints (text/figures/image/PATCH) and form endpoints (catalog/refine/form-fields/generate/status/finalize/classify) documented in `docs/API_OVERVIEW.md`; new env vars in `backend/.env.example`.
+- Owner self-service statutory forms: `forms/generate` admits the owner, the assigned agent, or an admin in any pre-filing status (`Draft` through `Draft Generated`); innovators hold `DOCUMENTS_GENERATE` for their own applications while finalizing stays agent/admin-only. With no applicant entered, the first inventor stands in (named in the result warnings); with no parties at all generation stays fail-closed. The title is now the full invention title with no "A SYSTEM AND METHOD…" prefix, and all five templates render unsigned with no sample personal data.
+- Innovator **Forms** tab on the patent workflow page (owner/agent/admin, pre-filing statuses) with the finalize button hidden for owners; the agent draft workspace uses the same pre-filing gate.
 
 ### Fixed
 
@@ -29,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AI system prompt rewritten around Indian complete-specification conventions (title ≤15 words, field statement, objective background, enablement-standard embodiments, exact reference numerals, single term per element); advantage fields validated as lowercase base verbs; user message names the group and keys.
 - Refined values now feed document generation (previously the renderer silently used raw questionnaire values); caller-supplied `counts` are allowlisted and `drawing_count` is always derived; invented reference numerals are rejected deterministically; vision attribution fixed; YOLO scans last pages first; refine has a 100s start-deadline with per-request context cache; finalize blocked by newer failed jobs; user figure decisions immune to vision overrides.
 - Form disclosure now states the draft is not legal advice and needs professional review (ADR-008 §8).
+- Bundled templates scrubbed of sample personal data and signatures: FORM2/3/5 dated/signature/agent footers removed, FORM3's hardcoded "No One" assignee replaced by the applicant tag, FORM1 inventor/agent signature blocks replaced by an unsigned-draft note, and residual pack data (MIT, agent Pranav Bhat / IN-PA 4580 / phone, fixed counts/dates) replaced by placeholders — verified by render tests asserting zero unresolved tags and zero sample strings.
 - DOCX/PPTX captions bind to the next image only instead of leaking to every later figure.
 - Templates with unknown placeholders or parse errors stay inactive and cannot be activated; the patent-application renderer uses the same sandboxed `StrictUndefined` Jinja environment as the statutory forms.
 - `patch_doc`/`delete_doc` existence probes go through the guarded Firestore read (retryable 503 + client recycle instead of raw transport errors).

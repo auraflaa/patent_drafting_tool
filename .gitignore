@@ -59,6 +59,7 @@ ref-repos/
 # --- Local tooling output ---
 .trace/
 backend/.trace/
+*.log
 
 # --- Local dev scripts (never commit; see CONTRIBUTING.md) ---
 start.bat
